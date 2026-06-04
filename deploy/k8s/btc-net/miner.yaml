@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: regtest-miner
+  namespace: btc-net
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: regtest-miner
+  template:
+    metadata:
+      labels:
+        app: regtest-miner
+    spec:
+      containers:
+        - name: miner
+          image: alpine:3.20
+          env:
+            - name: RPC_USER
+              valueFrom: { secretKeyRef: { name: bitcoind-rpc-auth, key: RPC_USER } }
+            - name: RPC_PASS
+              valueFrom: { secretKeyRef: { name: bitcoind-rpc-auth, key: RPC_PASS } }
+          command: ["/bin/sh","-lc"]
+          args:
+            - |
+              apk add --no-cache curl jq;
+              while true; do
+                url="http://bitcoind-regtest:18443/"
+                auth="$RPC_USER:$RPC_PASS"
+                addr=$(curl -fsSL --user "$auth" --data-binary '{"jsonrpc":"1.0","id":"m","method":"getnewaddress","params":[]}' \
+                  -H 'content-type: text/plain;' "$url" | jq -r .result || true)
+                if [ -n "$addr" ] && [ "$addr" != "null" ]; then
+                  curl -fsSL --user "$auth" --data-binary "{\"jsonrpc\":\"1.0\",\"id\":\"m\",\"method\":\"generatetoaddress\",\"params\":[1,\"$addr\"]}" \
+                    -H 'content-type: text/plain;' "$url" >/dev/null || true
+                fi
+                sleep 10
+              done

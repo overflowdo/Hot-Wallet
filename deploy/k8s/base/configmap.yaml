@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: btc-hot-config
+  namespace: btc-hot
+data:
+  OPA_URL: "http://opa.btc-hot.svc.cluster.local:8181"
+  NATS_URL: "nats://nats.btc-hot.svc.cluster.local:4222"
+  NOTIFIER_URL: "http://ntfy:80"
+
+  # regtest node-only RPC endpoint (namespace btc-net)
+  BITCOIND_RPC_URL: "http://bitcoind-regtest.btc-net.svc.cluster.local:18443/"
