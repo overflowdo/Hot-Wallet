@@ -1,0 +1,13 @@
+apiVersion: volsync.backube/v1alpha1
+kind: ReplicationDestination
+metadata:
+  name: btc-archive-restore
+  namespace: btc-hot
+spec:
+  trigger:
+    manual: "restore-once"
+
+  restic:
+    repository: restic-config-btc-archive
+    destinationPVC: btc-archive-pvc
+    copyMethod: Direct

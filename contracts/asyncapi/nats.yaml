@@ -1,0 +1,53 @@
+asyncapi: 2.6.0
+info:
+  title: NATS Event Contracts
+  version: 0.1.0
+channels:
+  intent.refill.created:
+    publish:
+      message:
+        name: RefillIntentCreated
+        payload:
+          $ref: ../schemas/intent.json
+
+  intent.refill.psbt_created:
+    publish:
+      message:
+        name: RefillPsbtCreated
+        payload:
+          $ref: ../schemas/psbt_payload.json
+
+  tx.hot.requested:
+    publish:
+      message:
+        name: HotTxRequested
+        payload:
+          $ref: ../schemas/intent.json
+
+  tx.hot.approved:
+    publish:
+      message:
+        name: HotTxApproved
+        payload:
+          $ref: ../schemas/tx_state.json
+
+  tx.hot.signed:
+    publish:
+      message:
+        name: HotTxSigned
+        payload:
+          $ref: ../schemas/tx_state.json
+
+  tx.hot.broadcast:
+    publish:
+      message:
+        name: HotTxBroadcast
+        payload:
+          $ref: ../schemas/tx_state.json
+
+  tx.hot.confirmed:
+    publish:
+      message:
+        name: HotTxConfirmed
+        payload:
+          $ref: ../schemas/tx_state.json

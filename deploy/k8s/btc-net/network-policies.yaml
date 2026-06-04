@@ -1,0 +1,83 @@
+apiVersion: networking.k8s.io/v1apiVersion: networking: btc-net
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress", "Egress"]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: btc-net
+spec:
+  podSelector: {}
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: coredns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-bitcoind-rpc-ingress
+  namespace: btc-net
+spec:
+  podSelector:
+    matchLabels:
+      app: bitcoind-regtest
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: btc-hot
+          podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values:
+                  - middleware
+                  - tx-builder
+        - podSelector:
+            matchLabels:
+              app: regtest-miner
+      ports:
+        - protocol: TCP
+          port: 18443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-miner-egress-to-bitcoind
+  namespace: btc-net
+spec:
+  podSelector:
+    matchLabels:
+      app: regtest-miner
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: bitcoind-regtest
+      ports:
+        - protocol: TCP
+          port: 18443
+kind: NetworkPolicy
+metadata:
+  name: default-deny

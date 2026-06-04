@@ -1,0 +1,64 @@
+openapi: 3.0.3
+info:
+  title: TX Builder API
+  version: 0.1.0
+servers:
+  - url: http://tx-builder:8080
+paths:
+  /healthz:
+    get:
+      responses:
+        "200":
+          description: OK
+
+  /api/v1/build/refill-psbt:
+    post:
+      summary: Build a cold->hot refill PSBT (transport: base64)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [intent_id, target_address, amount_sats]
+              properties:
+                intent_id: { type: string }
+                target_address: { type: string }
+                amount_sats: { type: integer }
+                fee_target_blocks: { type: integer, default: 6 }
+      responses:
+        "200":
+          description: PSBT created (base64)
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/psbt_payload.json
+
+  /api/v1/work/{intentId}/psbt:
+    get:
+      summary: Get PSBT from work store (base64)
+      parameters:
+        - name: intentId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: PSBT payload
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/psbt_payload.json
+        "404":
+          description: Not ready
+
+  /api/v1/work/{intentId}:
+    delete:
+      summary: Delete work item (manual cleanup)
+      parameters:
+        - name: intentId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { description: Deleted }

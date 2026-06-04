@@ -1,0 +1,38 @@
+openapi: 3.0.3
+info:
+  title: Bitcoin RPC Gateway (OIDC protected)
+  version: 0.1.0
+servers:
+  - url: http://bitcoind-rpc-gateway:8080
+paths:
+  /:
+    post:
+      summary: Proxy JSON-RPC calls to bitcoind (OIDC protected upstream)
+      description: >
+        This gateway is intended for human/operator access.
+        Service-to-service calls should use internal RPC + NetworkPolicy + Basic Auth.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [jsonrpc, id, method, params]
+              properties:
+                jsonrpc: { type: string, example: "1.0" }
+                id: { type: string }
+                method: { type: string, example: "getblockchaininfo" }
+                params:
+                  type: array
+                  items: {}
+      responses:
+        "200":
+          description: JSON-RPC response
+          content:
+            application/json:
+              schema:
+                type: object
+        "401":
+          description: Unauthorized (OIDC)
+        "403":
+          description: Forbidden

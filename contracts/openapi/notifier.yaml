@@ -1,0 +1,22 @@
+openapi: 3.0.3
+info:
+  title: Notifier Interface (ntfy)
+  version: 0.1.0
+paths:
+  /notify/refill-needed:
+    post:
+      summary: Notify human that a cold->hot refill is required (implementation out of scope)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [intent_id]
+              properties:
+                intent_id: { type: string }
+                amount_sats: { type: integer }
+                reason: { type: string }
+                created_utc: { type: string }
+      responses:
+        "200": { description: OK }

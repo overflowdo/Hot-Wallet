@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Intent",
+  "type": "object",
+  "required": ["intent_id", "type", "created_utc"],
+  "properties": {
+    "intent_id": { "type": "string" },
+    "type": { "type": "string", "enum": ["hot_tx", "refill"] },
+    "created_utc": { "type": "string" },
+    "amount_sats": { "type": "integer" },
+    "target_address": { "type": "string" },
+    "reason": { "type": "string" },
+    "meta": { "type": "object" }
+  }
+}

@@ -1,0 +1,99 @@
+#USB mounten
+#final.<id>.psbt finden
+#PSBT base64 erzeugen
+#POST /api/v1/psbt/extract → rawtx_hex
+#POST /api/v1/broadcast → txid
+#POST /api/v1/archive/broadcasted (multipart) → speichert Dateien auf Archiv‑PVC
+#USB umount
+
+#!/usr/bin/env bash
+set -euo pipefail
+
+MNT="/mnt/usb"
+LABEL="USB"
+
+API_BASE="${API_BASE:-http://middleware.btc-hot.svc.cluster.local:8080}"
+API_TOKEN="${API_TOKEN:-}"
+
+die(){ echo "ERROR: $*" >&2; exit 1; }
+info(){ echo "[*] $*"; }
+
+[[ $EUID -eq 0 ]] || die "Bitte als root ausführen."
+
+DEV="$(readlink -f /dev/disk/by-label/${LABEL} 2>/dev/null || true)"
+[[ -n "$DEV" ]] || die "Kein Device mit Label '${LABEL}' gefunden."
+
+mkdir -p "$MNT"
+mountpoint -q "$MNT" || mount "$DEV" "$MNT"
+
+PSBT_DIR="$MNT/psbt"
+AUTH_DIR="$PSBT_DIR/auth"
+
+shopt -s nullglob
+finals=( "$PSBT_DIR"/final.*.psbt )
+shopt -u nullglob
+[[ ${#finals[@]} -eq 1 ]] || die "Erwarte genau eine final.*.psbt (found=${#finals[@]}): ${finals[*]:-none}"
+
+FINAL="${finals[0]}"
+BASE="$(basename "$FINAL")"     # final.<id>.psbt
+ID="${BASE#final.}"
+ID="${ID%.psbt}"
+[[ -n "$ID" && "$ID" != "$BASE" ]] || die "Konnte <id> nicht aus Dateiname ableiten: $BASE"
+
+curl_post_json(){
+  local url="$1"
+  local json="$2"
+  if [[ -n "$API_TOKEN" ]]; then
+    curl -fsSL -H "Authorization: Bearer $API_TOKEN" -H "Content-Type: application/json" -d "$json" "$url"
+  else
+    curl -fsSL -H "Content-Type: application/json" -d "$json" "$url"
+  fi
+}
+
+psbt_b64="$(base64 -w 0 "$FINAL")"
+
+# 1) Extract rawtx
+EXTRACT_URL="${API_BASE}/api/v1/psbt/extract"
+info "Extract rawtx: $EXTRACT_URL"
+extract_resp="$(curl_post_json "$EXTRACT_URL" "{\"psbt_base64\":\"$psbt_b64\"}")" || die "PSBT extract failed."
+
+rawtx_hex="$(echo "$extract_resp" | sed -n 's/.*"rawtx_hex"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+[[ -n "$rawtx_hex" ]] || die "rawtx_hex missing in extract response: $extract_resp"
+
+# 2) Broadcast
+BROADCAST_URL="${API_BASE}/api/v1/broadcast"
+info "Broadcast: $BROADCAST_URL"
+broadcast_resp="$(curl_post_json "$BROADCAST_URL" "{\"signed_rawtx_hex\":\"$rawtx_hex\"}")" || die "Broadcast failed."
+
+txid="$(echo "$broadcast_resp" | sed -n 's/.*"txid"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+[[ -n "$txid" ]] || die "txid missing in broadcast response: $broadcast_resp"
+info "Broadcast OK. txid=$txid"
+
+# 3) Upload archive bundle to middleware (Talos PVC)
+ARCHIVE_URL="${API_BASE}/api/v1/archive/broadcasted"
+TS="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+info "Archive upload: $ARCHIVE_URL"
+
+APP_JSON="$AUTH_DIR/approval.json"
+APP_SIG="$AUTH_DIR/approval.json.sig"
+
+curl_args=(-fsSL)
+[[ -n "$API_TOKEN" ]] && curl_args+=(-H "Authorization: Bearer $API_TOKEN")
+
+form=(-F "id=$ID" -F "txid=$txid" -F "broadcast_utc=$TS" -F "rawtx_hex=$rawtx_hex" -F "final_psbt_file=@${FINAL};type=application/octet-stream")
+
+if [[ -f "$APP_JSON" ]]; then
+  form+=(-F "approval_json_file=@${APP_JSON};type=application/json")
+fi
+if [[ -f "$APP_SIG" ]]; then
+  form+=(-F "approval_sig_file=@${APP_SIG};type=application/octet-stream")
+fi
+
+curl "${curl_args[@]}" "${form[@]}" "$ARCHIVE_URL" >/dev/null || die "Archive upload failed."
+info "Archived in cluster for id=$ID"
+
+sync
+umount "$MNT"
+info "USB unmounted: $MNT"
+info "Jetzt am Proxmox Host: ENTER zum Detach."

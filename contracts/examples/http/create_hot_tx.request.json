@@ -1,0 +1,13 @@
+{
+  "intent_id": "hot-20260430-171800-acde1234abcd",
+  "type": "hot_tx",
+  "created_utc": "2026-04-30T15:18:00Z",
+  "amount_sats": 250000,
+  "target_address": "bcrt1qexampledestinationaddress000000000000000000",
+  "reason": "external-withdrawal",
+  "meta": {
+    "fee_target_blocks": 6,
+    "tag": "ops",
+    "customer_ref": "CUST-4711"
+  }
+}

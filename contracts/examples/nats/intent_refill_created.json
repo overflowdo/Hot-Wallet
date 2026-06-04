@@ -1,0 +1,13 @@
+{
+  "intent_id": "refill-20260430-171900-ffee1122aabb",
+  "type": "refill",
+  "created_utc": "2026-04-30T15:19:00Z",
+  "amount_sats": 1000000,
+  "target_address": "bcrt1qhotdepositaddress00000000000000000000000",
+  "reason": "threshold-min-breach",
+  "meta": {
+    "hot_balance_sats": 450000,
+    "min_threshold_sats": 1000000,
+    "fee_target_blocks": 6
+  }
+}
