@@ -1,0 +1,58 @@
+services:
+
+  tx-builder:
+    build: ./services/tx-builder
+    container_name: tx-builder
+    environment:
+      SERVICE_NAME: tx-builder
+      NATS_URL: nats://nats:4222
+      WORK_ROOT: /var/lib/btc-work/psbt-work
+    volumes:
+      - tx_builder_data:/var/lib/btc-work
+    depends_on:
+      - nats
+      - postgres
+
+  policy-signer:
+    build: ./services/policy-signer
+    container_name: policy-signer
+    environment:
+      SERVICE_NAME: policy-signer
+      NATS_URL: nats://nats:4222
+    depends_on:
+      - nats
+
+  middleware:
+    build: ./services/middleware
+    container_name: middleware
+    environment:
+      SERVICE_NAME: middleware
+      NATS_URL: nats://nats:4222
+    depends_on:
+      - nats
+
+  nats:
+    image: nats:latest
+    container_name: nats
+    ports:
+      - "4222:4222"
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass
+      POSTGRES_DB: btc
+    ports:
+      - "5432:5432"
+    
+  nats-box:
+    image: natsio/nats-box:latest
+    container_name: nats-box
+    depends_on:
+      - nats
+    stdin_open: true
+    tty: true
+
+volumes:
+  tx_builder_data:

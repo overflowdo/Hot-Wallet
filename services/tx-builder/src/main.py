@@ -185,10 +185,27 @@ async def startup():
     nc = NATS()
     await nc.connect(servers=[NATS_URL])
 
+    log.info(
+        "nats_connected",
+        extra={
+            "service": SERVICE_NAME,
+            "nats_url": NATS_URL
+        }
+    )
+
     await nc.subscribe(
         SUBJECT_REFILL_INTENT,
         cb=handle_refill_intent
     )
+
+    log.info(
+        "nats_subscribed",
+        extra={
+            "subject": SUBJECT_REFILL_INTENT
+        }
+    )
+
+    log.info("tx-builder_started")
 
 
 @app.on_event("shutdown")
@@ -196,3 +213,4 @@ async def shutdown():
     global nc
     if nc:
         await nc.drain()
+    log.info("tx-shutdown")
