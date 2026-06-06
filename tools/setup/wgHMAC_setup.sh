@@ -4,8 +4,13 @@ set -euo pipefail
 USB_DEVICE="/dev/disk/by-label/USB"
 USB_MOUNT="/mnt/usb"
 
-SECRETS_DIR="./secrets"
-WALLET_DIR="./wallet"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(realpath "${SCRIPT_DIR}/../..")"
+
+SECRETS_DIR="${PROJECT_ROOT}/secrets"
+WALLET_DIR="${PROJECT_ROOT}/wallet"
+
+ENV_RUNTIME="${PROJECT_ROOT}/env.runtime"
 
 SIGNER_IP="10.10.0.2"
 SIGNER_URL="http://${SIGNER_IP}:8080"
@@ -56,12 +61,12 @@ chmod 600 "$SECRETS_DIR/signer-hmac.secret"
 # env.runtime
 HMAC_SECRET=$(cat "$SECRETS_DIR/signer-hmac.secret")
 
-cat > env.runtime <<EOF
+cat > "$ENV_RUNTIME" <<EOF
 SIGNER_URL=${SIGNER_URL}
 SIGNER_HMAC_SECRET=${HMAC_SECRET}
 EOF
 
-chmod 600 env.runtime
+chmod 600 "$ENV_RUNTIME"
 
 sync
 

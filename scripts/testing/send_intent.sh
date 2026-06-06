@@ -1,44 +1,14 @@
-import json
-import uuid
-import asyncio
-from datetime import datetime, timezone
+#!/usr/bin/env bash
 
-from nats.aio.client import Client as NATS
+NATS_CONTAINER="nats-box"
+NATS_SERVER="nats://nats:4222"
 
+INTENT_ID="${1:-t1}"
+AMOUNT_SATS="${2:-10000}"
 
-NATS_URL = "nats://localhost:4222"
-SUBJECT = "intent.created"
+PAYLOAD=$(printf '{"intent_id":"%s","amount_sats":%s}' \
+  "$INTENT_ID" \
+  "$AMOUNT_SATS")
 
-
-def create_intent():
-    return {
-        "intent_id": str(uuid.uuid4()),
-        "type": "refill",
-        "amount_sats": 10000,
-        "target_address": "bcrt1qexampledestinationaddress000000000000000000",
-        "network": "regtest",
-        "reason": "ops",
-        "meta": {"tag": "auto-test"},
-        "created_utc": datetime.now(timezone.utc).isoformat()
-    }
-
-
-async def main():
-    nc = NATS()
-    await nc.connect(servers=[NATS_URL])
-
-    intent = create_intent()
-
-    print("PUBLISHING:")
-    print(json.dumps(intent, indent=2))
-
-    await nc.publish(
-        SUBJECT,
-        json.dumps(intent).encode()
-    )
-
-    await nc.drain()
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+docker exec "$NATS_CONTAINER" \
+  nats --server "$NATS_SERVER" pub intent.created "$PAYLOAD"

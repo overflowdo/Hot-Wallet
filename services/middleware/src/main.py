@@ -13,8 +13,6 @@ import asyncio
 from .opa_client import OPAClient
 from .opa_mapper import to_opa_input
 
-from .db import update_intent_state
-
 from embit.psbt import PSBT
 
 import hmac
@@ -28,10 +26,9 @@ SIGNER_HMAC_SECRET = os.getenv("SIGNER_HMAC_SECRET")
 nc = None
 
 from .db import (
-    ArchivedTxRecord,
-    upsert_archived_tx,
+    archive_txRecord,
     upsert_psbt_artifact,
-    update_intent_state,
+    insert_psbt
 )
 
 class BroadcastRequest(BaseModel):
@@ -233,7 +230,7 @@ async def archive_broadcasted(
     archive_path = f"psbt-archive/{id}/"
     final_psbt_fullpath = str(psbt_path)
 
-    rec = ArchivedTxRecord(
+    rec = str(
         id=id,
         network=BITCOIN_NETWORK,
         source="manual-usb",
@@ -250,7 +247,7 @@ async def archive_broadcasted(
     )
 
     # psycopg is sync -> run in thread
-    await asyncio.to_thread(upsert_archived_tx, rec)
+    await asyncio.to_thread(archive_txRecord, rec)
 
     if intent_id:
         await asyncio.to_thread(
@@ -265,12 +262,12 @@ async def archive_broadcasted(
     return {"stored": True, "archive_path": archive_path}
 from typing import Optional
 
-@app.get("/api/v1/intents/{intent_id}/psbt")
-async def get_psbt(intent_id: str, format: str = "base64"):
+@app.get("/api/v1/intents/{psbt_id}/psbt")
+async def get_psbt(psbt_id: str, format: str = "base64"):
     if format != "base64":
         raise HTTPException(400, "only base64 supported")
 
-    url = f"http://tx-builder.btc-hot.svc.cluster.local:8080/api/v1/work/{intent_id}/psbt"
+    url = f"http://tx-builder.btc-hot.svc.cluster.local:8080/api/v1/work/{psbt_id}/psbt"
 
     async with httpx.AsyncClient(timeout=10.0) as c:
         r = await c.get(url)
@@ -303,35 +300,29 @@ async def startup():
     )
 
     await nc.subscribe(
-        "intent.psbt.created",
+        "psbt.created",
         cb=psbt_created_handler
     )
 
     await nc.subscribe(
-        "intent.psbt.failed",
+        "psbt.failed",
         cb=psbt_failed_handler
-    )
-
-    await nc.subscribe(
-        "intent.psbt.signed",
-        cb=psbt_signed_handler
-    )
-
-    await nc.subscribe(
-        "intent.psbt.unsigned",
-        cb=psbt_unsigned_handler
     )
 
 #OPA Interface
 opa = OPAClient()
-async def handle_intent(intent: dict, nc):
-    opa_input = to_opa_input(intent)
+async def handle_intent(psbt: dict, nc):
+    opa_input = to_opa_input(psbt)
 
     await asyncio.to_thread(
-        update_intent_state,
-        intent["intent_id"],
-        "RECEIVED",
-        {"received_at": utc_now_iso(), "source": "middleware"}
+        insert_psbt,{
+            "id": psbt["id"],
+            "type": psbt["type"],
+            "state": "INTENT_CREATED",        
+            "amount_sats": psbt["amount_sats"],
+            "target_address": psbt["target_address"],
+            "meta": {}
+        }
     )
 
     decision = await opa.evaluate_hot_intent(opa_input)
@@ -342,95 +333,127 @@ async def handle_intent(intent: dict, nc):
 
     if not allowed:
         await asyncio.to_thread(
-            update_intent_state,
-            intent["intent_id"],
-            "OPA_REJECTED",
-            decision
+            insert_psbt, {
+                "id": psbt["id"],
+                "type": psbt["type"],
+                "state": "OPA_REJECTED",        
+                "amount_sats": psbt["amount_sats"],
+                "target_address": psbt["target_address"],
+                "meta": {}
+            }
         )
 
         await nc.publish(
-            "intent.rejected",
+            "psbt.failed",
             json.dumps({
-                "intent_id": intent.get("intent_id"),
+                "psbt_id": psbt.get("psbt_id"),
                 "reasons": reasons
             }).encode()
         )
         return
 
     await asyncio.to_thread(
-        update_intent_state,
-        intent["intent_id"],
-        "OPA_APPROVED",
-        decision
+        insert_psbt, {
+            "id": psbt["id"],
+            "type": psbt["type"],
+            "state": "OPA_APPROVED",        
+            "amount_sats": psbt["amount_sats"],
+            "target_address": psbt["target_address"],
+            "meta": {}
+        }
     )
+
     await nc.publish(
-        "intent.build.requested",
+        "psbt.build.requested",
         json.dumps({
-            "intent_id": intent["intent_id"],
-            "network": intent.get("network"),
-            "amount_sats": intent.get("amount_sats"),
-            "target_address": intent.get("target_address"),
-            "reason": intent.get("reason"),
-            "meta": intent.get("meta", {}),
+            "psbt_id": psbt["psbt_id"],
+            "network": psbt.get("network"),
+            "amount_sats": psbt.get("amount_sats"),
+            "target_address": psbt.get("target_address"),
+            "reason": psbt.get("reason"),
+            "meta": psbt.get("meta", {}),
             "approved_at": utc_now_iso()
     }).encode()
 )
 
-async def handle_psbt_created(event: dict):
-    intent_id = event["intent_id"]
+async def handle_psbt_created(psbt: dict):
+    psbt_id = psbt["psbt_id"]
 
     await asyncio.to_thread(
-        update_intent_state,
-        intent_id,
-        {
-            "state": "PSBT_CREATED",
-            "created_utc": event.get("created_utc")
+        insert_psbt, {
+            "id": psbt["id"],
+            "type": psbt["type"],
+            "state": "PSBT_CREATED",        
+            "amount_sats": psbt["amount_sats"],
+            "target_address": psbt["target_address"],
+            "meta": {}
         }
-        
     )
 
     await asyncio.to_thread(
         upsert_psbt_artifact,
-        intent_id,
+        psbt_id,
         "unsigned",
-        event["psbt_ref"],
-        event["sha256"],
+        psbt["psbt_ref"],
+        psbt["sha256"],
         None
     )
 
     #Weiterleitung zu Sign Funktion
     try:
         signed = await sign_psbt_on_signer(
-            intent_id,
-            event["psbt_ref"],
-            event["sha256"]
+            psbt_id,
+            psbt["psbt_ref"],
+            psbt["sha256"]
         )
     except Exception as e:
         await asyncio.to_thread(
-            update_intent_state,
-            intent_id,
-            "FAILED",
-            {
-                "error_code": "SIGNER_ERROR",
-                "message": str(e)
+            insert_psbt, {
+                "id": psbt["id"],
+                "type": psbt["type"],
+                "state": "SIGNING_FAILED",        
+                "amount_sats": psbt["amount_sats"],
+                "target_address": psbt["target_address"],
+                "meta": {}
             }
         )
         return
     
-    #Nach erfolgreichen Signieren NATS event pisblishen
+    #Nach erfolgreichen Signieren
+    await asyncio.to_thread(
+        insert_psbt, {
+            "id": psbt["id"],
+            "type": psbt["type"],
+            "state": "PSBT_SIGNED",        
+            "amount_sats": psbt["amount_sats"],
+            "target_address": psbt["target_address"],
+            "meta": {}
+        }
+    )
+
+    # store signed PSBT artifact
+    await asyncio.to_thread(
+        upsert_psbt_artifact,
+        psbt_id,
+        "signed",
+        psbt["signed_psbt_ref"],
+        psbt.get("sha256"),
+        None
+    )
+
+    #Broadcast request
     await nc.publish(
-        "intent.psbt.signed",
+        "psbt.broadcast.requested",
         json.dumps({
-            "intent_id": intent_id,
-            "signed_psbt_ref": signed["signed_psbt_ref"],
-            "sha256": signed["sha256"],
+            "psbt_id": psbt_id,
+            "signed_psbt_ref": event["signed_psbt_ref"],
             "created_utc": utc_now_iso()
         }).encode()
     )
 
 #Sprich NixOs Signer per WG und HMAC an
 async def sign_psbt_on_signer(
-        intent_id: str,
+        psbt_id: str,
         psbt_ref: str,
         sha256: str,
     ):
@@ -438,7 +461,7 @@ async def sign_psbt_on_signer(
         nonce = secrets.token_hex(16)
 
         payload = {
-            "intent_id": intent_id,
+            "psbt_id": psbt_id,
             "psbt_ref": psbt_ref,
             "sha256": sha256,
             "timestamp": timestamp,
@@ -478,67 +501,17 @@ async def sign_psbt_on_signer(
             return r.json()
 
 
-
-
-
-async def handle_psbt_failed(event: dict):
-    intent_id = event["intent_id"]
+async def handle_psbt_failed(psbt: dict):
+    psbt_id = psbt["psbt_id"]
 
     await asyncio.to_thread(
-        update_intent_state,
-        intent_id,
-        {
-            "state": "PSBT_FAILED",
-            "created_utc": event.get("created_utc"),
-            "error_code": event.get("error_code")
-        }
-    )
+            insert_psbt, {
+                "id": psbt["id"],
+                "type": psbt["type"],
+                "state": "PSBT_FAILED",        
+                "amount_sats": psbt["amount_sats"],
+                "target_address": psbt["target_address"],
+                "meta": {}
+            }
+        )
 
-async def psbt_signed_handler(msg):
-    event = json.loads(msg.data.decode())
-    intent_id = event["intent_id"]
-
-    # update state
-    await asyncio.to_thread(
-        update_intent_state,
-        intent_id,
-        "PSBT_SIGNED",
-        {
-            "signed_at": utc_now_iso(),
-            "source": "signer-node"
-        }
-    )
-
-    # store signed PSBT artifact
-    await asyncio.to_thread(
-        upsert_psbt_artifact,
-        intent_id,
-        "signed",
-        event["signed_psbt_ref"],
-        event.get("sha256"),
-        None
-    )
-
-    await nc.publish(
-        "intent.broadcast.requested",
-        json.dumps({
-            "intent_id": intent_id,
-            "signed_psbt_ref": event["signed_psbt_ref"],
-            "created_utc": utc_now_iso()
-        }).encode()
-    )
-
-async def psbt_unsigned_handler(msg):
-    event = json.loads(msg.data.decode())
-    intent_id = event["intent_id"]
-
-    # update state
-    await asyncio.to_thread(
-        update_intent_state,
-        intent_id,
-        "PSBT_UNSIGNED",
-        {
-            "signed_at": utc_now_iso(),
-            "source": "signer-node"
-        }
-    )

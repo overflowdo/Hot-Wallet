@@ -106,7 +106,7 @@ async def build_psbt_for_intent(intent: dict) -> PsbtResult:
 
     amount_sats = int(intent.get("amount_sats", 0))
     if amount_sats <= 0:
-                log.warning("invalid_amount", extra={
+        log.warning("invalid_amount", extra={
             "intent_id": intent_id,
             "amount_sats": amount_sats
         })
@@ -277,7 +277,7 @@ async def handle_intent_build(msg):
             }
 
             if nc:
-                await nc.publish("intent.psbt.failed", json.dumps(evt).encode())
+                await nc.publish("psbt.failed", json.dumps(evt).encode())
 
             return
 
@@ -304,7 +304,7 @@ async def handle_intent_build(msg):
 
         if nc:
             await nc.publish(
-                "intent.psbt.created",
+                "psbt.created",
                 json.dumps(evt).encode()
             )
 
@@ -312,7 +312,7 @@ async def handle_intent_build(msg):
         log.error("intent_handler_failed", extra={"service": SERVICE_NAME, "intent_id": intent_id,"status": "intent_handler_failed", "error_code": "INTERNAL_ERROR", "context": {"message": str(e)},"created_utc": utc_now_iso()})
         if nc:
             await nc.publish(
-                "intent.psbt.failed",
+                "psbt.failed",
                 json.dumps({
                     "intent_id": intent_id,
                     "status": "PSBT_FAILED",
