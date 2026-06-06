@@ -16,15 +16,11 @@ BEGIN
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'intent_state') THEN
-    CREATE TYPE btc.intent_state AS ENUM ('CREATED', 'POLICY_ALLOWED', 'POLICY_DENIED', 'BUILT', 'WAITING_HUMAN', 'SIGNED', 'BROADCAST', 'CONFIRMED', 'FAILED');
+    CREATE TYPE btc.intent_state AS ENUM ('CREATED', 'OPA_APPROVED', 'OPA_REJECTED');
   END IF;
 
-  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'hot_tx_state') THEN
-    CREATE TYPE btc.hot_tx_state AS ENUM ('CREATED', 'POLICY_ALLOWED', 'POLICY_DENIED', 'SIGNED', 'BROADCAST', 'CONFIRMED', 'FAILED');
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'psbt_stage') THEN
-    CREATE TYPE btc.psbt_stage AS ENUM ('unappr', 'appr', 'signed', 'final');
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'psbt_state') THEN
+    CREATE TYPE btc.psbt_state AS ENUM ('PSBT_FAILED', 'PSBT_CREATED', 'UNSIGNED', 'WAITING_HUMAN', 'WAITING_RETRY', 'SIGNED', 'BROADCAST');
   END IF;
 END $$;
 
@@ -37,12 +33,12 @@ CREATE TABLE IF NOT EXISTS btc.intent (
   state            btc.intent_state NOT NULL DEFAULT 'CREATED',
   network          TEXT NOT NULL DEFAULT 'regtest',
   created_utc      TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_utc      TIMESTAMPTZ NOT NULL DEFAULT now(),
 
   amount_sats      BIGINT,
   target_address   TEXT,
   reason           TEXT,
-  meta             JSONB NOT NULL DEFAULT '{}'::jsonb
+  meta             JSONB NOT NULL DEFAULT '{}'::jsonb,
+  error_code        TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_intent_type_created ON btc.intent (type, created_utc DESC);
@@ -113,7 +109,7 @@ CREATE TABLE IF NOT EXISTS btc.hot_sign_request (
   intent_id            TEXT REFERENCES btc.intent(intent_id) ON DELETE SET NULL,
 
   network              TEXT NOT NULL DEFAULT 'regtest',
-  state                btc.hot_tx_state NOT NULL DEFAULT 'CREATED',
+  state                btc.psbt_state NOT NULL DEFAULT 'WAITING_RETRY',
   created_utc          TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_utc          TIMESTAMPTZ NOT NULL DEFAULT now(),
 

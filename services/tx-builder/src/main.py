@@ -19,6 +19,8 @@ from .indexer import sync_chain
 from .bitcoind import estimate_sat_per_vb
 from .coinselect import select_utxos, estimate_vbytes
 from .psbt_builder import build_psbt
+import hashlib
+from dataclasses import dataclass, field
 
 app = FastAPI()
 
@@ -28,19 +30,18 @@ NATS_URL = os.getenv("NATS_URL", "nats://nats:4222")
 BITCOIN_NETWORK = os.getenv("BITCOIN_NETWORK", "regtest")
 WORK_ROOT = os.getenv("WORK_ROOT", "/var/lib/btc-work/psbt-work")
 
-# Refill target output script (scriptPubKey hex for hot deposit)
-HOT_DEPOSIT_SCRIPT_HEX = os.getenv("HOT_DEPOSIT_SCRIPT_HEX", "").lower()
-
-# Change script for cold (watch script) - MVP: you can set to a cold change scriptPubKey
-COLD_CHANGE_SCRIPT_HEX = os.getenv("COLD_CHANGE_SCRIPT_HEX", "").lower()
-
 # Fee estimation config
 FEE_TARGET_BLOCKS = int(os.getenv("FEE_TARGET_BLOCKS", "6"))
 VIN_VB_P2WSH = int(os.getenv("VIN_VB_P2WSH", "104"))
 VOUT_VB = int(os.getenv("VOUT_VB", "31"))
 
-SUBJECT_REFILL_INTENT = "intent.refill.created"
-SUBJECT_REFILL_PSBT_CREATED = "intent.refill.psbt_created"
+SUBJECT_BUILD_INTENT = "intent.build.requested"
+
+HOT_DEPOSIT_SCRIPT_HEX = os.getenv("HOT_DEPOSIT_SCRIPT_HEX", "").lower()
+COLD_CHANGE_SCRIPT_HEX = os.getenv("COLD_CHANGE_SCRIPT_HEX", "").lower()
+
+MAX_FEE_SATS = int(os.getenv("MAX_FEE_SATS", "50000"))
+MAX_FEE_RATE_SAT_VB = int(os.getenv("MAX_FEE_RATE_SAT_VB", "50"))
 
 log = logging.getLogger("tx-builder")
 
@@ -50,6 +51,8 @@ nc: Optional[NATS] = None
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
+def sha256(b: bytes) -> str:
+    return hashlib.sha256(b).hexdigest()
 
 def ensure_dir(p: Path):
     p.mkdir(parents=True, exist_ok=True)
@@ -60,6 +63,13 @@ def write_work_item(intent_id: str, psbt_bytes: bytes, meta: dict):
     ensure_dir(d)
     (d / "unappr.psbt").write_bytes(psbt_bytes)
     (d / "meta.json").write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
+
+@dataclass
+class PsbtResult:
+    success: bool
+    psbt: Optional[bytes] = None
+    error_code: Optional[str] = None
+    context: dict = field(default_factory=dict)
 
 
 @app.get("/healthz")
@@ -88,56 +98,161 @@ async def periodic_chain_sync():
             unspent = db.count_unspent("cold")
             UTXO_UNSPENT_GAUGE.labels(label="cold").set(unspent)
         except Exception as e:
-            log.error("chain_sync_failed", extra={"service": SERVICE_NAME, "error": str(e)})
+            log.error("chain_sync_failed", extra={"service": SERVICE_NAME, "status": "chain_sync_failed", "error_code": "INTERNAL_ERROR", "context": {"message": str(e)}, "created_utc": utc_now_iso()})
         await asyncio.sleep(5)
 
-
-async def build_refill_psbt(intent: dict) -> Optional[bytes]:
-    if not HOT_DEPOSIT_SCRIPT_HEX or not COLD_CHANGE_SCRIPT_HEX:
-        raise RuntimeError("HOT_DEPOSIT_SCRIPT_HEX and COLD_CHANGE_SCRIPT_HEX must be configured")
-
+async def build_psbt_for_intent(intent: dict) -> PsbtResult:
     intent_id = intent["intent_id"]
+
     amount_sats = int(intent.get("amount_sats", 0))
     if amount_sats <= 0:
-        return None
+                log.warning("invalid_amount", extra={
+            "intent_id": intent_id,
+            "amount_sats": amount_sats
+        })
+        return PsbtResult(
+            success=False,
+            error_code="INVALID_AMOUNT",
+            context={
+                "intent_id": intent_id,
+                "amount_sats": amount_sats
+            }
+        )
 
-    # Get UTXOs for cold label
     utxos = db.list_unspent("cold", limit=500)
+    if not utxos:
+        log.warning("no_utxos_available", extra={"intent_id": intent_id})
+        return PsbtResult(
+            success=False,
+            error_code="NO_UTXOS_AVAILABLE"
+        ) 
 
-    # Estimate fee rate
     sat_vb = await estimate_sat_per_vb(FEE_TARGET_BLOCKS)
 
-    # coin selection loops fee estimation
-    # assume 2 outputs: hot deposit + change
     chosen, total = select_utxos(utxos, amount_sats)
     if not chosen:
-        return None
+        log.warning("not_enough_utxos_for_amount", extra={"intent_id": intent_id, "amount_sats": amount_sats})
+        return PsbtResult(
+            success=False,
+            error_code="NOT_ENOUGH_UTXOS"
+        )
 
-    # compute fee with chosen inputs
     n_in = len(chosen)
-    vbytes = estimate_vbytes(n_in, 2, VIN_VB_P2WSH, VOUT_VB)
-    fee = sat_vb * vbytes
 
-    # re-select with fee
+    vbytes = estimate_vbytes(n_in, 2, VIN_VB_P2WSH, VOUT_VB)
+    if vbytes <= 0:
+        log.warning("invalid_vbytes", extra={"intent_id": intent_id, "vbytes": vbytes})
+        return PsbtResult(
+            success=False,
+            error_code="INVALID_VBYTES"
+        )
+
+    #Absolute fee
+    fee = sat_vb * vbytes
+    if fee > MAX_FEE_SATS:
+        log.warning("fee_too_high", extra={"fee": fee})
+        return PsbtResult(
+            success=False,
+            error_code="FEE_TOO_HIGH",
+            context={"fee_sats": fee}
+        )
+
+    #fee rate
+    fee_rate = fee / vbytes
+    if fee_rate > MAX_FEE_RATE_SAT_VB:
+        log.warning("fee_rate_too_high", extra={"fee_rate": fee_rate})
+        return PsbtResult(
+            success=False,
+            error_code="FEE_RATE_TOO_HIGH",
+            context={"fee_rate": fee_rate}
+        )
+
     chosen, total = select_utxos(utxos, amount_sats + fee)
     if not chosen:
-        return None
+        log.warning("not_enough_utxos", extra={"amount_sats": amount_sats, "fee": fee})
+        return PsbtResult(
+             success=False,
+             error_code="NOT_ENOUGH_UTXOS",
+             context={
+                "amount_sats": amount_sats,
+                "fee": fee
+            }
+        )
 
     n_in = len(chosen)
+    
     vbytes = estimate_vbytes(n_in, 2, VIN_VB_P2WSH, VOUT_VB)
+    if vbytes <= 0:
+        log.warning("invalid_vbytes", extra={"intent_id": intent_id, "vbytes": vbytes})
+        return PsbtResult(
+            success=False,
+            error_code="INVALID_VBYTES"
+        )
+
+    #2 fache berechnung der fees nach neuen infos
     fee = sat_vb * vbytes
+    if fee > MAX_FEE_SATS:
+        log.warning("fee_too_high", extra={"fee": fee})
+        return PsbtResult(
+            success=False,
+            error_code="FEE_TOO_HIGH",
+            context={"fee_sats": fee}
+        )
+
+    fee_rate = fee / vbytes
+    if fee_rate > MAX_FEE_RATE_SAT_VB:
+        log.warning("fee_rate_too_high", extra={"fee_rate": fee_rate})
+        return PsbtResult(
+            success=False,
+            error_code="FEE_RATE_TOO_HIGH",
+            context={"fee_rate": fee_rate}
+        )
 
     change = total - amount_sats - fee
     if change < 0:
-        return None
+        log.warning("change_negative", extra={"change_sats": change, "total": total, "amount": amount_sats, "fee": fee})
+        return PsbtResult(
+            success=False,
+            error_code="NEGATIVE_CHANGE",
+            context={
+                "change_sats": change,
+                "total": total,
+                "amount": amount_sats
+            }
+        )
 
     outputs = [(HOT_DEPOSIT_SCRIPT_HEX, amount_sats)]
-    psbt_bytes = build_psbt(chosen, outputs, COLD_CHANGE_SCRIPT_HEX, change_sats=change)
-    return psbt_bytes
+
+    psbt_bytes = build_psbt(
+        chosen,
+        outputs,
+        COLD_CHANGE_SCRIPT_HEX,
+        change_sats=change
+    )
+
+    log.info(
+        "psbt_created",
+        extra={
+            "intent_id": intent_id,
+            "sha256": sha256(psbt_bytes)
+        }
+    )
+
+    return PsbtResult(
+        success=True,
+        psbt=psbt_bytes
+    )
 
 
-async def handle_refill_intent(msg):
+#Called from middleware
+async def handle_intent_build(msg):
     global nc
+    if not nc or not nc.is_connected:
+        log.error("nats_not_initialized")
+        return
+
+    intent_id = None
+
     try:
         intent = json.loads(msg.data.decode("utf-8"))
         intent_id = intent.get("intent_id")
@@ -147,11 +262,26 @@ async def handle_refill_intent(msg):
         INTENTS_TOTAL.labels(type="refill", result="received").inc()
 
         # build psbt
-        psbt_bytes = await build_refill_psbt(intent)
-        if not psbt_bytes:
+        result = await build_psbt_for_intent(intent)
+
+        if not result.success:
             PSBT_BUILT_TOTAL.labels(result="failed").inc()
             INTENTS_TOTAL.labels(type="refill", result="no-psbt").inc()
+
+            evt = {
+                "intent_id": intent_id,
+                "status": "PSBT_FAILED",
+                "error_code": result.error_code,
+                "context": result.context,
+                "created_utc": utc_now_iso()
+            }
+
+            if nc:
+                await nc.publish("intent.psbt.failed", json.dumps(evt).encode())
+
             return
+
+        psbt_bytes = result.psbt
 
         meta = {
             "intent": intent,
@@ -163,14 +293,36 @@ async def handle_refill_intent(msg):
         PSBT_BUILT_TOTAL.labels(result="ok").inc()
         INTENTS_TOTAL.labels(type="refill", result="psbt-created").inc()
 
-        evt = {"intent_id": intent_id, "created_utc": utc_now_iso(), "psbt_ready": True}
-        if nc:
-            await nc.publish(SUBJECT_REFILL_PSBT_CREATED, json.dumps(evt).encode("utf-8"))
+        evt = {
+            "intent_id": intent_id,
+            "status": "PSBT_CREATED",
+            "psbt_path": str(Path(WORK_ROOT) / intent_id / "unappr.psbt"),
+            "psbt_ref": f"psbt-work/{intent_id}/unappr.psbt",
+            "sha256": sha256(psbt_bytes),
+            "created_utc": utc_now_iso()
+        }
 
-        log.info("refill_psbt_created", extra={"service": SERVICE_NAME, "intent_id": intent_id})
+        if nc:
+            await nc.publish(
+                "intent.psbt.created",
+                json.dumps(evt).encode()
+            )
 
     except Exception as e:
-        log.error("refill_intent_handler_failed", extra={"service": SERVICE_NAME, "error": str(e)})
+        log.error("intent_handler_failed", extra={"service": SERVICE_NAME, "intent_id": intent_id,"status": "intent_handler_failed", "error_code": "INTERNAL_ERROR", "context": {"message": str(e)},"created_utc": utc_now_iso()})
+        if nc:
+            await nc.publish(
+                "intent.psbt.failed",
+                json.dumps({
+                    "intent_id": intent_id,
+                    "status": "PSBT_FAILED",
+                    "error_code": "INTERNAL_ERROR",
+                    "context": {
+                        "message": str(e)
+                    },
+                    "created_utc": utc_now_iso()
+                }).encode()
+            )
 
 
 @app.on_event("startup")
@@ -194,14 +346,14 @@ async def startup():
     )
 
     await nc.subscribe(
-        SUBJECT_REFILL_INTENT,
-        cb=handle_refill_intent
+        SUBJECT_BUILD_INTENT,
+        cb=handle_intent_build
     )
 
     log.info(
         "nats_subscribed",
         extra={
-            "subject": SUBJECT_REFILL_INTENT
+            "subject": SUBJECT_BUILD_INTENT
         }
     )
 

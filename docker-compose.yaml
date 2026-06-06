@@ -7,20 +7,22 @@ services:
       SERVICE_NAME: tx-builder
       NATS_URL: nats://nats:4222
       WORK_ROOT: /var/lib/btc-work/psbt-work
+
+      DATABASE_URL: postgresql://user:pass@postgres:5432/btc
+
+      BITCOIN_NETWORK: regtest
+      HOT_DEPOSIT_SCRIPT_HEX: "0014aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      COLD_CHANGE_SCRIPT_HEX: "0014bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+
+      BITCOIND_RPC_URL: http://bitcoind:18443
+      BITCOIND_RPC_USER: user
+      BITCOIND_RPC_PASS: pass
     volumes:
       - tx_builder_data:/var/lib/btc-work
     depends_on:
       - nats
       - postgres
 
-  policy-signer:
-    build: ./services/policy-signer
-    container_name: policy-signer
-    environment:
-      SERVICE_NAME: policy-signer
-      NATS_URL: nats://nats:4222
-    depends_on:
-      - nats
 
   middleware:
     build: ./services/middleware
@@ -28,14 +30,40 @@ services:
     environment:
       SERVICE_NAME: middleware
       NATS_URL: nats://nats:4222
+      OPA_URL: http://opa:8181/v1/data/policy/hot/allow
+      SIGNER_URL: http://10.50.0.1:8080
+    env_file:
+    - .env.runtime
     depends_on:
       - nats
+      - opa
+
+  opa:
+    image: openpolicyagent/opa:0.63.0
+    container_name: opa
+    command:
+      - "run"
+      - "--server"
+      - "--addr=0.0.0.0:8181"
+      - "/policies"
+    ports:
+      - "8181:8181"
+    volumes:
+      - ./opa/policies:/policies:ro
 
   nats:
     image: nats:latest
     container_name: nats
     ports:
       - "4222:4222"
+
+  nats-box:
+    image: natsio/nats-box:latest
+    container_name: nats-box
+    depends_on:
+      - nats
+    stdin_open: true
+    tty: true
 
   postgres:
     image: postgres:16
@@ -45,14 +73,29 @@ services:
       POSTGRES_DB: btc
     ports:
       - "5432:5432"
-    
-  nats-box:
-    image: natsio/nats-box:latest
-    container_name: nats-box
-    depends_on:
-      - nats
-    stdin_open: true
-    tty: true
+    volumes:
+    - postgres_data:/var/lib/postgresql/data
+    - ./services/middleware/migrations/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
+    - ./services/middleware/migrations/002_utxo.sql:/docker-entrypoint-initdb.d/002_utxo.sql:ro
+
+  bitcoind:
+    image: ruimarinho/bitcoin-core:latest
+    container_name: bitcoind
+    command:
+      - -regtest=1
+      - -server=1
+      - -rpcuser=user
+      - -rpcpassword=pass
+      - -rpcallowip=0.0.0.0/0
+      - -rpcbind=0.0.0.0
+      - -fallbackfee=0.0002
+      - -txindex=1
+    ports:
+      - "18443:18443"
+    volumes:
+      - bitcoind_data:/home/bitcoin/.bitcoin
 
 volumes:
   tx_builder_data:
+  postgres_data:
+  bitcoind_data:

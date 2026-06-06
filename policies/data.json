@@ -11,7 +11,9 @@
   "hot": {
     "limits": {
       "max_amount_sats": 5000000,
-      "daily_spent_sats": 20000000
+      "daily_spent_sats": 20000000,
+      "max_fee_rate_sat_vb": 25,
+      "max_fee_sats": 20000
     },
     "require_tag": true,
     "allowed_reasons": [
@@ -23,13 +25,5 @@
       "bcrt1qexampledestinationaddress000000000000000000",
       "bcrt1qanotherexampledestinationaddress00000000000"
     ]
-  },
-
-  "refill": {
-    "cooldown_seconds": 3600,
-    "limits": {
-      "min_refill_sats": 500000,
-      "max_refill_sats": 50000000
-    }
   }
 }

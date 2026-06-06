@@ -1,4 +1,5 @@
 import os
+import json
 from typing import List, Optional, Tuple, Dict, Any
 import psycopg
 from psycopg.rows import dict_row
@@ -87,3 +88,47 @@ def count_unspent(label: str) -> int:
               WHERE u.spent=false AND w.label=%s
             """, (label,))
             return int(cur.fetchone()["n"])
+
+def upsert_intent(intent: dict):
+    with conn() as c:
+        with c.cursor() as cur:
+            cur.execute("""
+                INSERT INTO btc.intent (
+                    intent_id,
+                    type,
+                    state,
+                    network,
+                    amount_sats,
+                    target_address,
+                    reason,
+                    meta
+                )
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (intent_id)
+                DO UPDATE SET
+                    updated_utc = now(),
+                    state = EXCLUDED.state,
+                    meta = EXCLUDED.meta
+            """, (
+                intent.get("intent_id"),
+                intent.get("type", "refill"),
+                intent.get("state", "CREATED"),
+                intent.get("network", "regtest"),
+                intent.get("amount_sats"),
+                intent.get("target_address"),
+                intent.get("reason"),
+                json.dumps(intent.get("meta", {}))
+            ))
+        c.commit()
+
+
+def update_intent_state(intent_id: str, state: str):
+    with conn() as c:
+        with c.cursor() as cur:
+            cur.execute("""
+                UPDATE btc.intent
+                SET state = %s,
+                    updated_utc = now()
+                WHERE intent_id = %s
+            """, (state, intent_id))
+        c.commit()

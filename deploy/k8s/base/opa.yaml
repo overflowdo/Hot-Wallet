@@ -6,58 +6,36 @@ metadata:
 data:
   hot.rego: |
     package policy.hot
-    default allow = false
-    allow { input.amount_sats <= data.limits.hot_max_sats }
-  refill.rego: |
-    package policy.refill
-    default allow_intent = true
-  data.json: |
-    {
-      "limits": { "hot_max_sats": 100000000 }
+
+    default decision := {
+      "allow": false,
+      "intent_type": "hot",
+      "action": "deny",
+      "reasons": ["not evaluated"],
+      "limits": {}
     }
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: opa
-  namespace: btc-hot
-spec:
-  selector:
-    app: opa
-  ports:
-    - name: http
-      port: 8181
-      targetPort: 8181
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: opa
-  namespace: btc-hot
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: opa
-  template:
-    metadata:
-      labels:
-        app: opa
-    spec:
-      containers:
-        - name: opa
-          image: openpolicyagent/opa:0.63.0
-          args:
-            - "run"
-            - "--server"
-            - "--addr=0.0.0.0:8181"
-            - "/policies"
-          ports:
-            - containerPort: 8181
-          volumeMounts:
-            - name: policies
-              mountPath: /policies
-      volumes:
-        - name: policies
-          configMap:
-            name: opa-policies
+
+    decision := {
+      "allow": true,
+      "intent_type": "hot",
+      "action": "execute",
+      "reasons": [],
+      "limits": limits
+    } {
+      not deny[_]
+    }
+
+    decision := {
+      "allow": false,
+      "intent_type": "hot",
+      "action": "deny",
+      "reasons": [r | r := deny[_]],
+      "limits": limits
+    } {
+      deny[_]
+    }
+
+    limits := {
+      "max_amount_sats": data.hot.limits.max_amount_sats,
+      "daily_spent_sats": data.hot.limits.daily_spent_sats
+    }
