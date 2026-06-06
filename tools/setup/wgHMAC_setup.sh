@@ -1,20 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-USB_DEVICE="/dev/sdX1"
-USB_MOUNT="/mnt/bootstrap"
+USB_DEVICE="/dev/disk/by-label/USB"
+USB_MOUNT="/mnt/usb"
 
 SECRETS_DIR="./secrets"
 
 WG_ENDPOINT="10.50.0.1"
 SIGNER_URL="http://${WG_ENDPOINT}:8080"
 
+
 mkdir -p "$USB_MOUNT"
 mkdir -p "$SECRETS_DIR"
 
-echo "[1] Mount bootstrap USB"
+echo "[1] Mount USB"
 
 mount "$USB_DEVICE" "$USB_MOUNT"
+sudo chown -R $USER:users "$USB_MOUNT"
+echo "USB drive mounted at /mnt/usb"
 
 echo "[2] Verify required files"
 
@@ -68,7 +71,7 @@ curl \
   || echo "WARNING: Signer not reachable yet"
 
 echo
-echo "[OK] Bootstrap imported"
+echo "[OK] Secrets imported"
 echo
 echo "Generated:"
 echo "  .env.runtime"
