@@ -5,75 +5,77 @@ USB_DEVICE="/dev/disk/by-label/USB"
 USB_MOUNT="/mnt/usb"
 
 SECRETS_DIR="./secrets"
+WALLET_DIR="./wallet"
 
-WG_ENDPOINT="10.50.0.1"
-SIGNER_URL="http://${WG_ENDPOINT}:8080"
+SIGNER_IP="10.10.0.2"
+SIGNER_URL="http://${SIGNER_IP}:8080"
 
+echo "=== Import Hot Signer ==="
 
 mkdir -p "$USB_MOUNT"
 mkdir -p "$SECRETS_DIR"
-
-echo "[1] Mount USB"
+mkdir -p "$WALLET_DIR"
 
 mount "$USB_DEVICE" "$USB_MOUNT"
-sudo chown -R $USER:users "$USB_MOUNT"
-echo "USB drive mounted at /mnt/usb"
 
-echo "[2] Verify required files"
 
-test -f "$USB_MOUNT/signer_api_secret.txt"
-test -f "$USB_MOUNT/signer_wg_public.key"
+# sanity checks
+test -f "$USB_MOUNT/communication/wireguard-public.key"
+test -f "$USB_MOUNT/communication/signer-hmac.secret"
 
-echo "[3] Read HMAC secret"
+test -f "$USB_MOUNT/wallet/hot-wallet.xpub"
+test -f "$USB_MOUNT/wallet/wallet.json"
 
-SIGNER_HMAC_SECRET="$(cat "$USB_MOUNT/signer_api_secret.txt")"
 
-if [ -z "$SIGNER_HMAC_SECRET" ]; then
-    echo "ERROR: Empty signer_api_secret.txt"
-    exit 1
-fi
 
-echo "[4] Create Docker secret"
-
-printf "%s" "$SIGNER_HMAC_SECRET" \
-    > "$SECRETS_DIR/signer_hmac.txt"
-
-chmod 600 "$SECRETS_DIR/signer_hmac.txt"
-
-echo "[5] Create runtime env"
-
-cat > .env.runtime <<EOF
-SIGNER_URL=${SIGNER_URL}
-SIGNER_HMAC_SECRET=${SIGNER_HMAC_SECRET}
-WG_ENDPOINT=${WG_ENDPOINT}
-EOF
-
-chmod 600 .env.runtime
-
-echo "[6] Store signer WG public key"
+# communication
+cp \
+  "$USB_MOUNT/communication/wireguard-public.key" \
+  "$SECRETS_DIR/wireguard-public.key"
 
 cp \
-  "$USB_MOUNT/signer_wg_public.key" \
-  "$SECRETS_DIR/signer_wg_public.key"
+  "$USB_MOUNT/communication/signer-hmac.secret" \
+  "$SECRETS_DIR/signer-hmac.secret"
 
-chmod 644 "$SECRETS_DIR/signer_wg_public.key"
 
-echo "[7] Unmount USB"
+
+# wallet
+cp \
+  "$USB_MOUNT/wallet/hot-wallet.xpub" \
+  "$WALLET_DIR/hot-wallet.xpub"
+
+cp \
+  "$USB_MOUNT/wallet/wallet.json" \
+  "$WALLET_DIR/wallet.json"
+
+chmod 644 "$SECRETS_DIR/wireguard-public.key"
+chmod 600 "$SECRETS_DIR/signer-hmac.secret"
+
+
+
+# env.runtime
+HMAC_SECRET=$(cat "$SECRETS_DIR/signer-hmac.secret")
+
+cat > env.runtime <<EOF
+SIGNER_URL=${SIGNER_URL}
+SIGNER_HMAC_SECRET=${HMAC_SECRET}
+EOF
+
+chmod 600 env.runtime
 
 sync
+
 umount "$USB_MOUNT"
 
-echo "[8] Connectivity check"
-
-curl \
-  --connect-timeout 3 \
-  "${SIGNER_URL}/health" \
-  || echo "WARNING: Signer not reachable yet"
-
-echo
-echo "[OK] Secrets imported"
-echo
+echo ""
+echo "Imported:"
+echo "  secrets/wireguard-public.key"
+echo "  secrets/signer-hmac.secret"
+echo "  wallet/hot-wallet.xpub"
+echo "  wallet/wallet.json"
+echo ""
 echo "Generated:"
-echo "  .env.runtime"
-echo "  secrets/signer_hmac.txt"
-echo "  secrets/signer_wg_public.key"
+echo "  env.runtime"
+echo ""
+echo "Signer URL:"
+echo "  ${SIGNER_URL}"

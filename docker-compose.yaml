@@ -33,10 +33,12 @@ services:
       OPA_URL: http://opa:8181/v1/data/policy/hot/allow
       SIGNER_URL: http://10.50.0.1:8080
     env_file:
-    - .env.runtime
+      - .env.runtime
     depends_on:
       - nats
       - opa
+    volumes:
+      - ./wallet:/run/wallet:ro
 
   opa:
     image: openpolicyagent/opa:0.63.0
