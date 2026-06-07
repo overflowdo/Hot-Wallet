@@ -26,25 +26,26 @@ CREATE TABLE IF NOT EXISTS btc.psbt (
   id               bigserial PRIMARY KEY,
   psbt_id          TEXT NOT NULL,
   psbt_type        btc.psbt_type NOT NULL,
-  psbt_state            btc.psbt_state NOT NULL DEFAULT 'CREATED',
+  psbt_state       btc.psbt_state NOT NULL DEFAULT 'INTENT_CREATED',
   network          TEXT NOT NULL DEFAULT 'regtest',
   created_utc      TIMESTAMPTZ NOT NULL DEFAULT now(),
 
   amount_sats      BIGINT,
+  source_address   REFERENCES btc.wallet(wallet_id) ON DELETE CASCADE,
   target_address   TEXT,
   meta             JSONB NOT NULL DEFAULT '{}'::jsonb,
   error_code        TEXT
 );
 
-CREATE INDEX IF NOT EXISTS idx_psbt_type_created ON btc.psbt (type, created_utc DESC);
+CREATE INDEX IF NOT EXISTS idx_psbt_type_created ON btc.psbt (psbt_type, created_utc DESC);
 CREATE INDEX idx_psbt_psbt_id_created ON btc.psbt (psbt_id, created_utc DESC);
 
 -- -----------------------------
 -- POLICY DECISIONS (OPA)
 -- -----------------------------
-CREATE TABLE IF NOT EXISTS btc.policy_decision (
+CREATE TABLE IF NOT EXISTS btc.opa_decision (
   decision_id      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  psbt_id        TEXT REFERENCES btc.psbt(psbt_id) ON DELETE CASCADE,
+  psbt_id        BIGINT REFERENCES btc.psbt(id) ON DELETE CASCADE,
 
   policy_name      TEXT NOT NULL,              -- e.g. "policy.hot" / "policy.refill"
   actor            TEXT NOT NULL,              -- e.g. "middleware" / "tx-builder" / "policy-signer"
@@ -68,8 +69,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 -- -----------------------------
 CREATE TABLE IF NOT EXISTS btc.psbt_artifact (
   artifact_id      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  psbt_id        TEXT REFERENCES btc.psbt(psbt_id) ON DELETE CASCADE,
-  stage            btc.psbt_stage NOT NULL,
+  psbt_id        BIGINT REFERENCES btc.psbt(id) ON DELETE CASCADE,
 
   -- Where the file lives (USB temp paths are optional; archive path is durable)
   file_path        TEXT NOT NULL,              -- e.g. "usb:/mnt/usb/psbt/final.<id>.psbt" OR "archive:/psbt-archive/<id>/final.<id>.psbt"
@@ -77,22 +77,19 @@ CREATE TABLE IF NOT EXISTS btc.psbt_artifact (
   size_bytes       BIGINT,
   created_utc      TIMESTAMPTZ NOT NULL DEFAULT now(),
 
-  UNIQUE(psbt_id, stage)
+  UNIQUE(psbt_id)
 );
-
-CREATE INDEX IF NOT EXISTS idx_psbt_psbt_stage ON btc.psbt_artifact (psbt_id, stage);
 
 -- -----------------------------
 -- HOT SIGNING REQUESTS (zu NixOs bei HTTP)
 -- -----------------------------
 CREATE TABLE IF NOT EXISTS btc.hot_sign_request (
   request_id           TEXT PRIMARY KEY,       -- idempotency key (from middleware)
-  psbt_id            TEXT REFERENCES btc.psbt(psbt_id) ON DELETE SET NULL,
+  psbt_id            BIGINT REFERENCES btc.psbt(id) ON DELETE SET NULL,
 
   network              TEXT NOT NULL DEFAULT 'regtest',
   state                btc.psbt_state NOT NULL DEFAULT 'WAITING_RETRY',
   created_utc          TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_utc          TIMESTAMPTZ NOT NULL DEFAULT now(),
 
   tx_hash              TEXT NOT NULL,           -- canonical binding hash
   unsigned_rawtx_sha256 TEXT,                   -- hash of rawtx template
@@ -102,13 +99,7 @@ CREATE TABLE IF NOT EXISTS btc.hot_sign_request (
   error                TEXT
 );
 
-CREATE INDEX IF NOT EXISTS idx_hotreq_state_updated ON btc.hot_sign_request (state, updated_utc DESC);
 CREATE INDEX IF NOT EXISTS idx_hotreq_txid ON btc.hot_sign_request (txid);
-
-DROP TRIGGER IF EXISTS trg_hotreq_updated ON btc.hot_sign_request;
-CREATE TRIGGER trg_hotreq_updated
-BEFORE UPDATE ON btc.hot_sign_request
-FOR EACH ROW EXECUTE FUNCTION btc.set_updated_utc();
 
 -- -----------------------------
 -- ARCHIVE INDEX (nicht refreshen, anderen psbt_tables können mit details resetted werden)

@@ -32,6 +32,7 @@ services:
       NATS_URL: nats://nats:4222
       OPA_URL: http://opa:8181/v1/data/policy/hot/allow
       SIGNER_URL: http://10.50.0.1:8080
+      DATABASE_URL: postgresql://user:pass@postgres:5432/btc
     env_file:
       - env.runtime
     depends_on:
@@ -51,7 +52,7 @@ services:
     ports:
       - "8181:8181"
     volumes:
-      - ./opa/policies:/policies:ro
+      - ./.services/opa/policies:/policies:ro
 
   nats:
     image: nats:latest
@@ -77,25 +78,19 @@ services:
       - "5432:5432"
     volumes:
     - postgres_data:/var/lib/postgresql/data
-    - ./services/middleware/migrations/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
-    - ./services/middleware/migrations/002_utxo.sql:/docker-entrypoint-initdb.d/002_utxo.sql:ro
+    - ./services/postgres/001_posbt.sql:/docker-entrypoint-initdb.d/001_psbt.sql:ro
+    - ./services/postgres/002_wallet.sql:/docker-entrypoint-initdb.d/002_wallet.sql:ro
 
-  bitcoind:
-    image: ruimarinho/bitcoin-core:latest
-    container_name: bitcoind
-    command:
-      - -regtest=1
-      - -server=1
-      - -rpcuser=user
-      - -rpcpassword=pass
-      - -rpcallowip=0.0.0.0/0
-      - -rpcbind=0.0.0.0
-      - -fallbackfee=0.0002
-      - -txindex=1
-    ports:
-      - "18443:18443"
+  listener:
+    build: .
+    container_name: btc-zmq-listener
+    restart: unless-stopped
+    environment:
+      ZMQ_ENDPOINT: "tcp://10.50.0.10:28332"
+      WHITELIST_PATH: "/data/whitelist.json"
+      NATS_URL: "nats://nats:4222"
     volumes:
-      - bitcoind_data:/home/bitcoin/.bitcoin
+      - ./data:/data
 
 volumes:
   tx_builder_data:

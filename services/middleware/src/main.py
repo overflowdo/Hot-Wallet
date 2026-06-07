@@ -28,7 +28,12 @@ nc = None
 from .db import (
     archive_txRecord,
     upsert_psbt_artifact,
-    insert_psbt
+    insert_psbt,
+    create_wallet,
+    get_spendable_utxos,
+    update_spendable_utxos,
+    insert_opa_decision,
+    psbt_created_seen
 )
 
 class BroadcastRequest(BaseModel):
@@ -68,6 +73,8 @@ def is_hex(s: str) -> bool:
     except Exception:
         return False
     
+###########################################################################
+#Data classes
 class PsbtExtractRequest(BaseModel):
     psbt_base64: str
 
@@ -75,7 +82,19 @@ class PsbtExtractRequest(BaseModel):
 class PsbtExtractResponse(BaseModel):
     rawtx_hex: str
 
+class WalletCreateRequest(BaseModel):
+    wallet_id: str
+    wallet_type: str
 
+    network: str
+
+    xpub: str
+
+    derivation_path: str | None = None
+    master_fingerprint: str | None = None
+
+#######################################################################
+# API Endpoints (per FastAPI, wenn es kein event ist sondern direkt abfrage (anders als NATS))
 @app.get("/healthz")
 def healthz():
     return {"ok": True}
@@ -87,6 +106,93 @@ async def health():
         "status": "ok"
     }
 
+@app.post("/api/v1/wallets")
+async def add_wallet(req: WalletCreateRequest):
+
+    await asyncio.to_thread(
+        create_wallet,
+        req.wallet_id,
+        req.wallet_type,
+        req.network,
+        req.xpub,
+        req.derivation_path,
+        req.master_fingerprint
+    )
+
+    return {
+        "success": True,
+        "wallet_id": req.wallet_id
+    }
+
+@app.post("/api/v1/psbt/extract", response_model=PsbtExtractResponse)
+def psbt_extract(req: PsbtExtractRequest):
+    try:
+        psbt_bytes = base64.b64decode(req.psbt_base64)
+    except Exception:
+        raise HTTPException(400, "invalid base64")
+
+    try:
+        rawtx_hex = extract_rawtx_hex_from_final_psbt(psbt_bytes)
+    except Exception as e:
+        raise HTTPException(422, f"cannot extract raw tx from psbt: {e}")
+
+    if len(rawtx_hex) < 20:
+        raise HTTPException(422, "extracted raw tx too short (psbt not finalized?)")
+
+    return PsbtExtractResponse(rawtx_hex=rawtx_hex)
+
+@app.get("/api/v1/intents/{psbt_id}/psbt")
+async def get_psbt(psbt_id: str, format: str = "base64"):
+    if format != "base64":
+        raise HTTPException(400, "only base64 supported")
+
+    url = f"http://tx-builder.btc-hot.svc.cluster.local:8080/api/v1/work/{psbt_id}/psbt"
+
+    async with httpx.AsyncClient(timeout=10.0) as c:
+        r = await c.get(url)
+        if r.status_code == 404:
+            raise HTTPException(404, "psbt not ready")
+        r.raise_for_status()
+        return r.json()
+    
+
+########################################
+#utxo
+@app.get("/api/v1/utxo/spendable")
+async def get_utxos(wallet_id: str):
+    rows = await asyncio.to_thread(
+        get_spendable_utxos,
+        wallet_id
+    )
+
+    return {
+        "wallet_id": wallet_id,
+        "utxos": rows
+    }
+
+@app.post("/api/v1/utxo/apply-tx")
+async def apply_tx(body: dict):
+    """
+    body:
+    {
+        "txid": "...",
+        "inputs": [{"txid": "...", "vout": 0}],
+        "outputs": [
+            {"script": "...", "value": 12345}
+        ],
+        "height": 0
+    }
+    """
+
+    txid = body["txid"]
+    inputs = body["inputs"]
+    outputs = body["outputs"]
+    height = body.get("height", 0)
+
+    await asyncio.to_thread(update_spendable_utxos, txid, inputs, outputs, height)
+
+    return {"ok": True}
+########################################################################
 
 def extract_rawtx_hex_from_final_psbt(psbt_bytes: bytes) -> str:
     """
@@ -124,24 +230,8 @@ def extract_rawtx_hex_from_final_psbt(psbt_bytes: bytes) -> str:
     raise ValueError("cannot extract raw tx (psbt not finalized or unsupported embit version)")
 
 
-@app.post("/api/v1/psbt/extract", response_model=PsbtExtractResponse)
-def psbt_extract(req: PsbtExtractRequest):
-    try:
-        psbt_bytes = base64.b64decode(req.psbt_base64)
-    except Exception:
-        raise HTTPException(400, "invalid base64")
-
-    try:
-        rawtx_hex = extract_rawtx_hex_from_final_psbt(psbt_bytes)
-    except Exception as e:
-        raise HTTPException(422, f"cannot extract raw tx from psbt: {e}")
-
-    if len(rawtx_hex) < 20:
-        raise HTTPException(422, "extracted raw tx too short (psbt not finalized?)")
-
-    return PsbtExtractResponse(rawtx_hex=rawtx_hex)
-
-
+####################
+#Zu löschen, umbauen oer NATS
 @app.post("/api/v1/broadcast")
 async def broadcast(body: dict):
     raw = body.get("signed_rawtx_hex")
@@ -163,119 +253,7 @@ async def broadcast(body: dict):
         return {"txid": data["result"]}
 
 
-@app.post("/api/v1/archive/broadcasted")
-async def archive_broadcasted(
-    id: str = Form(...),
-    txid: str = Form(...),
-    broadcast_utc: str = Form(...),
-    rawtx_hex: Optional[str] = Form(None),
-    intent_id: Optional[str] = Form(None),
-    final_psbt_file: UploadFile = File(...),
-    approval_json_file: Optional[UploadFile] = File(None),
-    approval_sig_file: Optional[UploadFile] = File(None),
-):
-    if not id or not txid:
-        raise HTTPException(400, "id and txid required")
-
-    root = Path(ARCHIVE_ROOT)
-    tx_dir = root / id
-    tx_dir.mkdir(parents=True, exist_ok=True)
-
-    psbt_bytes = await final_psbt_file.read()
-    if not psbt_bytes:
-        raise HTTPException(400, "final_psbt_file empty")
-
-    psbt_name = f"final.{id}.psbt"
-    psbt_path = tx_dir / psbt_name
-    psbt_path.write_bytes(psbt_bytes)
-
-    rawtx_path = None
-    rawtx_sha = None
-    if rawtx_hex:
-        rawtx_path = tx_dir / "rawtx_hex.txt"
-        rawtx_path.write_text(rawtx_hex.strip() + "\n", encoding="utf-8")
-        if is_hex(rawtx_hex):
-            rawtx_sha = sha256_hex(bytes.fromhex(rawtx_hex.strip()))
-
-    record = {
-        "id": id,
-        "txid": txid,
-        "broadcast_utc": broadcast_utc,
-        "archived_utc": utc_now_iso(),
-        "network": BITCOIN_NETWORK,
-        "source": "manual-usb",
-        "final_psbt": psbt_name,
-        "sha256_final_psbt": sha256_hex(psbt_bytes),
-        "intent_id": intent_id,
-    }
-    (tx_dir / "broadcast.json").write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
-
-    approval_json_path = None
-    approval_sig_path = None
-
-    if approval_json_file is not None:
-        aj = await approval_json_file.read()
-        if aj:
-            p = tx_dir / "approval.json"
-            p.write_bytes(aj)
-            approval_json_path = str(p)
-
-    if approval_sig_file is not None:
-        asig = await approval_sig_file.read()
-        if asig:
-            p = tx_dir / "approval.json.sig"
-            p.write_bytes(asig)
-            approval_sig_path = str(p)
-
-    archive_path = f"psbt-archive/{id}/"
-    final_psbt_fullpath = str(psbt_path)
-
-    rec = str(
-        id=id,
-        network=BITCOIN_NETWORK,
-        source="manual-usb",
-        txid=txid,
-        broadcast_utc=broadcast_utc,
-        archive_path=archive_path,
-        final_psbt_path=final_psbt_fullpath,
-        final_psbt_sha256=sha256_hex(psbt_bytes),
-        rawtx_hex_path=str(rawtx_path) if rawtx_path else None,
-        rawtx_sha256=rawtx_sha,
-        approval_json_path=approval_json_path,
-        approval_sig_path=approval_sig_path,
-        meta={"intent_id": intent_id} if intent_id else {},
-    )
-
-    # psycopg is sync -> run in thread
-    await asyncio.to_thread(archive_txRecord, rec)
-
-    if intent_id:
-        await asyncio.to_thread(
-            upsert_psbt_artifact,
-            intent_id,
-            "final",
-            f"archive:/{archive_path}{psbt_name}",
-            sha256_hex(psbt_bytes),
-            len(psbt_bytes),
-        )
-
-    return {"stored": True, "archive_path": archive_path}
-from typing import Optional
-
-@app.get("/api/v1/intents/{psbt_id}/psbt")
-async def get_psbt(psbt_id: str, format: str = "base64"):
-    if format != "base64":
-        raise HTTPException(400, "only base64 supported")
-
-    url = f"http://tx-builder.btc-hot.svc.cluster.local:8080/api/v1/work/{psbt_id}/psbt"
-
-    async with httpx.AsyncClient(timeout=10.0) as c:
-        r = await c.get(url)
-        if r.status_code == 404:
-            raise HTTPException(404, "psbt not ready")
-        r.raise_for_status()
-        return r.json()
-
+############################################################################
 @app.on_event("startup")
 async def startup():
     global nc
@@ -284,7 +262,7 @@ async def startup():
 
     async def intent_created_handler(msg):
         data = json.loads(msg.data.decode())
-        await handle_intent(data, nc)
+        await handle_intent(data)
 
     async def psbt_created_handler(msg):
         data = json.loads(msg.data.decode())
@@ -309,59 +287,82 @@ async def startup():
         cb=psbt_failed_handler
     )
 
+##############################################################################
+# Event Workflow
+
+#Nach event raised
 #OPA Interface
 opa = OPAClient()
-async def handle_intent(psbt: dict, nc):
-    opa_input = to_opa_input(psbt)
+async def handle_intent(psbt: dict):
 
-    await asyncio.to_thread(
-        insert_psbt,{
-            "id": psbt["id"],
-            "type": psbt["type"],
-            "state": "INTENT_CREATED",        
-            "amount_sats": psbt["amount_sats"],
-            "target_address": psbt["target_address"],
-            "meta": {}
-        }
-    )
+    #Deduplication of Tx because of race conditions check
+    if await asyncio.to_thread(psbt_created_seen, psbt["id"], "INTENT_CREATED"):
+        return
 
-    decision = await opa.evaluate_hot_intent(opa_input)
+    if psbt.get("type") == "refill":
+        psbt["source_address"] = "cold"
+    elif psbt.get("type") == "hot-tx":
+        psbt["source_address"] = "hot"
 
-    result = decision.get("result", {})
-    allowed = result.get("allow", False)
-    reasons = result.get("reasons", [])
+        # Nur Hot braucht OPA decision, cold wird vom menschen vor Ausführung überprüft
+    
+        opa_input = to_opa_input(psbt)
 
-    if not allowed:
+        await asyncio.to_thread(
+            insert_psbt,{
+                "id": psbt["id"],
+                "type": psbt["type"],
+                "state": "INTENT_CREATED",        
+                "amount_sats": psbt["amount_sats"],
+                "target_address": psbt["target_address"],
+                "meta": {},
+                "error_code": psbt["error_code"],
+            }
+        )
+
+        decision = await opa.evaluate_hot_intent(opa_input)
+
+        result = decision.get("result", {})
+        allowed = result.get("allow", False)
+        reasons = result.get("reasons", [])
+
+        #DB logging
+        await asyncio.to_thread(
+            insert_opa_decision,
+            psbt_id=psbt["id"],
+            policy_name="policy.hot",
+            actor="middleware",
+            allow=allowed,
+            reasons=reasons,
+            input_data=opa_input,
+            result=result
+        )
+
+        if not allowed:
+            await asyncio.to_thread(
+                insert_psbt, {
+                    "id": psbt["id"],
+                    "type": psbt["type"],
+                    "state": "OPA_REJECTED",        
+                    "amount_sats": psbt["amount_sats"],
+                    "target_address": psbt["target_address"],
+                    "meta": {},
+                    "error_code": psbt["error_code"],
+                }
+            )
+            return
+
         await asyncio.to_thread(
             insert_psbt, {
                 "id": psbt["id"],
                 "type": psbt["type"],
-                "state": "OPA_REJECTED",        
+                "state": "OPA_APPROVED",        
                 "amount_sats": psbt["amount_sats"],
                 "target_address": psbt["target_address"],
-                "meta": {}
+                "meta": {},
+                "error_code": psbt["error_code"],
             }
         )
-
-        await nc.publish(
-            "psbt.failed",
-            json.dumps({
-                "psbt_id": psbt.get("psbt_id"),
-                "reasons": reasons
-            }).encode()
-        )
-        return
-
-    await asyncio.to_thread(
-        insert_psbt, {
-            "id": psbt["id"],
-            "type": psbt["type"],
-            "state": "OPA_APPROVED",        
-            "amount_sats": psbt["amount_sats"],
-            "target_address": psbt["target_address"],
-            "meta": {}
-        }
-    )
 
     await nc.publish(
         "psbt.build.requested",
@@ -370,12 +371,12 @@ async def handle_intent(psbt: dict, nc):
             "network": psbt.get("network"),
             "amount_sats": psbt.get("amount_sats"),
             "target_address": psbt.get("target_address"),
-            "reason": psbt.get("reason"),
             "meta": psbt.get("meta", {}),
-            "approved_at": utc_now_iso()
+            "sent_at": utc_now_iso()
     }).encode()
 )
 
+# Nach OPA senden zu Tx-builder
 async def handle_psbt_created(psbt: dict):
     psbt_id = psbt["psbt_id"]
 
@@ -386,7 +387,8 @@ async def handle_psbt_created(psbt: dict):
             "state": "PSBT_CREATED",        
             "amount_sats": psbt["amount_sats"],
             "target_address": psbt["target_address"],
-            "meta": {}
+            "meta": {},
+            "error_code": psbt["error_code"],
         }
     )
 
@@ -399,69 +401,116 @@ async def handle_psbt_created(psbt: dict):
         None
     )
 
-    #Weiterleitung zu Sign Funktion
-    try:
-        signed = await sign_psbt_on_signer(
-            psbt_id,
-            psbt["psbt_ref"],
-            psbt["sha256"]
-        )
-    except Exception as e:
+    signed = None
+
+    if psbt.set("state") == "hot-tx":
+        await sign_psbt()
+
+
+async def handle_psbt_created(psbt: dict):
+        #Weiterleitung zu Sign Funktion
+        try:
+            signed = await sign_psbt_on_signer(
+                psbt_id,
+                psbt["psbt_ref"],
+                psbt["sha256"]
+            )
+        except Exception as e:
+            await asyncio.to_thread(
+                insert_psbt, {
+                    "id": psbt["id"],
+                    "type": psbt["type"],
+                    "state": "SIGNING_FAILED",        
+                    "amount_sats": psbt["amount_sats"],
+                    "target_address": psbt["target_address"],
+                    "meta": {},
+                    "error_code": psbt["error_code"],
+                }
+            )
+            return
+        
+        #Bei sign file ohne error
+        if signed is None:
+            await asyncio.to_thread(
+                insert_psbt, {
+                    "id": psbt["id"],
+                    "type": psbt["type"],
+                    "state": "SIGNING_FAILED",        
+                    "amount_sats": psbt["amount_sats"],
+                    "target_address": psbt["target_address"],
+                    "meta": {},
+                    "error_code": psbt["error_code"],
+                }
+            )
+            return
+        
+        #Nach erfolgreichen Signieren
         await asyncio.to_thread(
             insert_psbt, {
                 "id": psbt["id"],
                 "type": psbt["type"],
-                "state": "SIGNING_FAILED",        
+                "state": "PSBT_SIGNED",        
                 "amount_sats": psbt["amount_sats"],
                 "target_address": psbt["target_address"],
-                "meta": {}
+                "meta": {},
+                "error_code": psbt["error_code"],
             }
         )
-        return
-    
-    #Nach erfolgreichen Signieren
-    await asyncio.to_thread(
-        insert_psbt, {
-            "id": psbt["id"],
-            "type": psbt["type"],
-            "state": "PSBT_SIGNED",        
-            "amount_sats": psbt["amount_sats"],
-            "target_address": psbt["target_address"],
-            "meta": {}
-        }
-    )
 
-    # store signed PSBT artifact
-    await asyncio.to_thread(
-        upsert_psbt_artifact,
-        psbt_id,
-        "signed",
-        psbt["signed_psbt_ref"],
-        psbt.get("sha256"),
-        None
-    )
+        # store signed PSBT artifact
+        await asyncio.to_thread(
+            upsert_psbt_artifact,
+            psbt_id,
+            "signed",
+            psbt["signed_psbt_ref"],
+            psbt.get("sha256"),
+            None
+        )
 
-    #Broadcast request
-    await nc.publish(
-        "psbt.broadcast.requested",
-        json.dumps({
-            "psbt_id": psbt_id,
-            "signed_psbt_ref": event["signed_psbt_ref"],
-            "created_utc": utc_now_iso()
-        }).encode()
-    )
+        if psbt.set("state") == "hot-tx":
+            rawtx_hex = signed.get("rawtx_hex")
+
+            if not rawtx_hex:
+                raise RuntimeError("Signer did not return rawtx_hex")
+
+            txid = await broadcast_to_bitcoind(rawtx_hex)
+
+            # to add logging
+
+        elif psbt.set("state") == "refill":
+            #Notify Human via ntfy for start of manual proess
+            return
+        
+        
+####################################################################
+#Nach Tx-builder
+async def handle_psbt_failed(psbt: dict):
+    psbt_id = psbt["psbt_id"]
+
+    await asyncio.to_thread(
+            insert_psbt, {
+                "id": psbt["id"],
+                "type": psbt["type"],
+                "state": "PSBT_FAILED",        
+                "amount_sats": psbt["amount_sats"],
+                "target_address": psbt["target_address"],
+                "meta": {},
+            }
+        )
 
 #Sprich NixOs Signer per WG und HMAC an
 async def sign_psbt_on_signer(
         psbt_id: str,
         psbt_ref: str,
         sha256: str,
+        psbt_type,
     ):
         timestamp = utc_now_iso()
         nonce = secrets.token_hex(16)
 
         payload = {
             "psbt_id": psbt_id,
+            "psbt_type": psbt_type,
             "psbt_ref": psbt_ref,
             "sha256": sha256,
             "timestamp": timestamp,
@@ -499,19 +548,25 @@ async def sign_psbt_on_signer(
             r.raise_for_status()
 
             return r.json()
+        
 
+async def broadcast_to_bitcoind(rawtx_hex: str):
+    payload = {
+        "jsonrpc": "1.0",
+        "id": "b",
+        "method": "sendrawtransaction",
+        "params": [rawtx_hex]
+    }
 
-async def handle_psbt_failed(psbt: dict):
-    psbt_id = psbt["psbt_id"]
+    auth = (BITCOIND_RPC_USER, BITCOIND_RPC_PASS)
 
-    await asyncio.to_thread(
-            insert_psbt, {
-                "id": psbt["id"],
-                "type": psbt["type"],
-                "state": "PSBT_FAILED",        
-                "amount_sats": psbt["amount_sats"],
-                "target_address": psbt["target_address"],
-                "meta": {}
-            }
-        )
+    async with httpx.AsyncClient(timeout=20.0) as c:
+        r = await c.post(BITCOIND_RPC_URL, json=payload, auth=auth)
+        r.raise_for_status()
 
+        data = r.json()
+
+        if data.get("error"):
+            raise RuntimeError(data["error"])
+
+        return data["result"]

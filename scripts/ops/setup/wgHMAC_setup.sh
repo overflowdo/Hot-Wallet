@@ -28,11 +28,6 @@ mount "$USB_DEVICE" "$USB_MOUNT"
 test -f "$USB_MOUNT/communication/wireguard-public.key"
 test -f "$USB_MOUNT/communication/signer-hmac.secret"
 
-test -f "$USB_MOUNT/wallet/hot-wallet.xpub"
-test -f "$USB_MOUNT/wallet/wallet.json"
-
-
-
 # communication
 cp \
   "$USB_MOUNT/communication/wireguard-public.key" \
@@ -42,20 +37,8 @@ cp \
   "$USB_MOUNT/communication/signer-hmac.secret" \
   "$SECRETS_DIR/signer-hmac.secret"
 
-
-
-# wallet
-cp \
-  "$USB_MOUNT/wallet/hot-wallet.xpub" \
-  "$WALLET_DIR/hot-wallet.xpub"
-
-cp \
-  "$USB_MOUNT/wallet/wallet.json" \
-  "$WALLET_DIR/wallet.json"
-
 chmod 644 "$SECRETS_DIR/wireguard-public.key"
 chmod 600 "$SECRETS_DIR/signer-hmac.secret"
-
 
 
 # env.runtime
@@ -67,6 +50,58 @@ SIGNER_HMAC_SECRET=${HMAC_SECRET}
 EOF
 
 chmod 600 "$ENV_RUNTIME"
+
+# wallet
+#hot/cold subfolder
+echo ""
+echo "Importing wallets..."
+
+FOUND=0
+
+for WALLET_TYPE_DIR in "$USB_MOUNT/wallet"/*/
+do
+    [ -d "$WALLET_TYPE_DIR" ] || continue
+
+    WALLET_JSON="$WALLET_TYPE_DIR/wallet.json"
+
+    if [ ! -f "$WALLET_JSON" ]; then
+        echo "Skipping $(basename "$WALLET_TYPE_DIR") (no wallet.json)"
+        continue
+    fi
+
+    FOUND=1
+
+    WALLET_TYPE=$(basename "$WALLET_TYPE_DIR")
+
+    echo ""
+    echo "----------------------------------"
+    echo "Wallet type: $WALLET_TYPE"
+    echo "File: $WALLET_JSON"
+    echo "----------------------------------"
+
+    # local copy
+    mkdir -p "$WALLET_DIR/$WALLET_TYPE"
+    cp "$WALLET_TYPE_DIR/"* "$WALLET_DIR/$WALLET_TYPE/"
+
+    chmod 644 "$WALLET_DIR/$WALLET_TYPE"/*
+
+    # register in middleware
+    curl \
+      --fail \
+      --show-error \
+      --silent \
+      -X POST \
+      "${MIDDLEWARE_URL}/api/v1/wallets" \
+      -H "Content-Type: application/json" \
+      --data @"$WALLET_JSON"
+
+    echo "OK: $WALLET_TYPE registered"
+done
+
+if [ "$FOUND" -eq 0 ]; then
+    echo "WARNING: no wallets found"
+fi
+
 
 sync
 

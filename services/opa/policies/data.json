@@ -16,11 +16,6 @@
       "max_fee_sats": 20000
     },
     "require_tag": true,
-    "allowed_reasons": [
-      "external-withdrawal",
-      "ops",
-      "sweep-to-cold"
-    ],
     "whitelist_addresses": [
       "bcrt1qexampledestinationaddress000000000000000000",
       "bcrt1qanotherexampledestinationaddress00000000000"

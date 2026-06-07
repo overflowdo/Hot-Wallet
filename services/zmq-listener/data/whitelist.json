@@ -1,0 +1,12 @@
+{
+  "allowed_addresses": [
+    "bcrt1qexampleaddress1xxxxxxxxxxxx",
+    "bcrt1qexampleaddress2xxxxxxxxxxxx",
+    "bcrt1qexampleaddress3xxxxxxxxxxxx"
+  ],
+
+  "allowed_scriptpubkeys": [
+    "0014ab3c..."
+  ]
+
+}

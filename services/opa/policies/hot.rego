@@ -1,0 +1,41 @@
+package policy.hot
+
+default allow := false
+
+allow {
+  input_valid
+  not deny[_]
+}
+
+decision := {
+  "allow": allow,
+  reasons: deny,
+  "limits": limits
+}
+
+limits := data.hot.limits
+
+input_valid {
+  input.amount_sats > 0
+  input.target_address != ""
+  input.request_id != ""
+  input.network != ""
+}
+
+deny["network not allowed"] {
+  not data.networks.allowed[input.network]
+}
+
+deny["amount exceeds limit"] {
+  input.amount_sats > data.hot.limits.max_amount_sats
+}
+
+deny["target not whitelisted"] {
+  data.hot.whitelist_addresses != null
+  not input.target_address in data.hot.whitelist_addresses
+}
+
+deny["tag required"] {
+  data.hot.require_tag == true
+  not input.meta.tag
+}
