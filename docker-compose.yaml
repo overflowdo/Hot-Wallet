@@ -78,11 +78,11 @@ services:
       - "5432:5432"
     volumes:
     - postgres_data:/var/lib/postgresql/data
-    - ./services/postgres/001_posbt.sql:/docker-entrypoint-initdb.d/001_psbt.sql:ro
+    - ./services/postgres/001_psbt.sql:/docker-entrypoint-initdb.d/001_psbt.sql:ro
     - ./services/postgres/002_wallet.sql:/docker-entrypoint-initdb.d/002_wallet.sql:ro
 
   listener:
-    build: .
+    build: ./services/zmq-listener
     container_name: btc-zmq-listener
     restart: unless-stopped
     environment:

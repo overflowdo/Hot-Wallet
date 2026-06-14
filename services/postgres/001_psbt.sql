@@ -11,14 +11,32 @@ CREATE SCHEMA IF NOT EXISTS btc;
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'psbt_type') THEN
-    CREATE TYPE btc.psbt_type AS ENUM ('hot_tx', 'refill');
+    CREATE TYPE btc.psbt_type AS ENUM ('hot-tx', 'refill');
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'psbt_state') THEN
     CREATE TYPE btc.psbt_state AS ENUM ('INTENT_CREATED', 'OPA_APPROVED', 'OPA_REJECTED', 'PSBT_FAILED', 'PSBT_CREATED', 'UNSIGNED', 'WAITING_HUMAN', 'WAITING_RETRY', 'SIGNING_FAILED', 'SIGNED', 'BROADCAST');
   END IF;
+  
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'wallet_type') THEN
+    CREATE TYPE btc.wallet_type AS ENUM ('hot', 'cold');
+  END IF;
 END $$;
 
+CREATE TABLE IF NOT EXISTS btc.wallet (
+    wallet_id        TEXT PRIMARY KEY,
+    wallet_type      btc.wallet_type NOT NULL,
+    network          TEXT NOT NULL,
+
+    xpub             TEXT NOT NULL,
+
+    derivation_path  TEXT,
+    master_fingerprint TEXT,
+
+    active           BOOLEAN NOT NULL DEFAULT true,
+
+    created_utc      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 -- -----------------------------
 -- PSBT
 -- -----------------------------
@@ -31,7 +49,7 @@ CREATE TABLE IF NOT EXISTS btc.psbt (
   created_utc      TIMESTAMPTZ NOT NULL DEFAULT now(),
 
   amount_sats      BIGINT,
-  source_address   REFERENCES btc.wallet(wallet_id) ON DELETE CASCADE,
+  source_address   TEXT REFERENCES btc.wallet(wallet_id) ON DELETE CASCADE,
   target_address   TEXT,
   meta             JSONB NOT NULL DEFAULT '{}'::jsonb,
   error_code        TEXT
@@ -40,12 +58,14 @@ CREATE TABLE IF NOT EXISTS btc.psbt (
 CREATE INDEX IF NOT EXISTS idx_psbt_type_created ON btc.psbt (psbt_type, created_utc DESC);
 CREATE INDEX idx_psbt_psbt_id_created ON btc.psbt (psbt_id, created_utc DESC);
 
+
+
 -- -----------------------------
 -- POLICY DECISIONS (OPA)
 -- -----------------------------
 CREATE TABLE IF NOT EXISTS btc.opa_decision (
   decision_id      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  psbt_id        BIGINT REFERENCES btc.psbt(id) ON DELETE CASCADE,
+  psbt_id           BIGINT REFERENCES btc.psbt(id) ON DELETE CASCADE,
 
   policy_name      TEXT NOT NULL,              -- e.g. "policy.hot" / "policy.refill"
   actor            TEXT NOT NULL,              -- e.g. "middleware" / "tx-builder" / "policy-signer"

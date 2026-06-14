@@ -21,20 +21,7 @@ CREATE TABLE IF NOT EXISTS btc.chain_state (
   updated_utc  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS btc.wallet (
-    wallet_id        TEXT PRIMARY KEY,
-    wallet_type      btc.wallet_type NOT NULL,
-    network          TEXT NOT NULL,
 
-    xpub             TEXT NOT NULL,
-
-    derivation_path  TEXT,
-    master_fingerprint TEXT,
-
-    active           BOOLEAN NOT NULL DEFAULT true,
-
-    created_utc      TIMESTAMPTZ NOT NULL DEFAULT now()
-);
 
 -- Scripts / addresses we care about (watch-only filter)
 -- Store scriptPubKey as hex; easiest to match from decoded tx outputs

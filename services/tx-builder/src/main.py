@@ -15,7 +15,6 @@ import httpx
 
 from .logging_setup import setup_logging
 from .metrics import INTENTS_TOTAL, UTXO_UNSPENT_GAUGE, PSBT_BUILT_TOTAL
-from .indexer import sync_chain
 from .bitcoind import estimate_sat_per_vb
 from .coinselect import select_utxos, estimate_vbytes
 from .psbt_builder import build_psbt

@@ -4,7 +4,7 @@ import time
 import uuid
 import asyncio
 import zmq
-import nats
+from nats.aio.client import Client as NATS
 
 from bitcoin.core import CTransaction
 
@@ -64,7 +64,8 @@ async def main():
     print("[listener] whitelist:", len(whitelist))
 
     # NATS connect
-    nc = await nats.connect(NATS_URL)
+    nc = NATS()
+    await nc.connect(servers=[NATS_URL])
     print("[listener] connected to NATS")
 
     # ZMQ connect
@@ -77,8 +78,7 @@ async def main():
 
     while True:
         try:
-            raw = socket.recv()
-
+            raw = await asyncio.to_thread(socket.recv)
             outputs = decode_tx(raw)
 
             for addr, value in outputs:

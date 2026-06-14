@@ -9,83 +9,92 @@ PROJECT_ROOT="$(realpath "${SCRIPT_DIR}/../..")"
 
 SECRETS_DIR="${PROJECT_ROOT}/secrets"
 WALLET_DIR="${PROJECT_ROOT}/wallet"
-
 ENV_RUNTIME="${PROJECT_ROOT}/env.runtime"
 
 SIGNER_IP="10.10.0.2"
 SIGNER_URL="http://${SIGNER_IP}:8080"
 
-echo "=== Import Hot Signer ==="
+MIDDLEWARE_URL="${MIDDLEWARE_URL:-http://localhost:3000}"
 
-mkdir -p "$USB_MOUNT"
-mkdir -p "$SECRETS_DIR"
-mkdir -p "$WALLET_DIR"
+echo "=== Import Hot/Cold Signer ==="
+
+mkdir -p "$USB_MOUNT" "$SECRETS_DIR" "$WALLET_DIR"
 
 mount "$USB_DEVICE" "$USB_MOUNT"
 
+echo ""
+echo "Checking communication files (optional)..."
 
-# sanity checks
-test -f "$USB_MOUNT/communication/wireguard-public.key"
-test -f "$USB_MOUNT/communication/signer-hmac.secret"
+# communication (OPTIONAL)
+if [[ -f "$USB_MOUNT/communication/wireguard-public.key" ]]; then
+    cp "$USB_MOUNT/communication/wireguard-public.key" \
+       "$SECRETS_DIR/wireguard-public.key"
+    chmod 644 "$SECRETS_DIR/wireguard-public.key"
+    echo "Imported: wireguard-public.key"
+else
+    echo "Skipping: wireguard-public.key (not found)"
+fi
 
-# communication
-cp \
-  "$USB_MOUNT/communication/wireguard-public.key" \
-  "$SECRETS_DIR/wireguard-public.key"
+if [[ -f "$USB_MOUNT/communication/signer-hmac.secret" ]]; then
+    cp "$USB_MOUNT/communication/signer-hmac.secret" \
+       "$SECRETS_DIR/signer-hmac.secret"
+    chmod 600 "$SECRETS_DIR/signer-hmac.secret"
+    echo "Imported: signer-hmac.secret"
+else
+    echo "Skipping: signer-hmac.secret (not found)"
+fi
 
-cp \
-  "$USB_MOUNT/communication/signer-hmac.secret" \
-  "$SECRETS_DIR/signer-hmac.secret"
+# env.runtime nur erzeugen wenn HMAC existiert
+if [[ -f "$SECRETS_DIR/signer-hmac.secret" ]]; then
+    HMAC_SECRET=$(cat "$SECRETS_DIR/signer-hmac.secret")
 
-chmod 644 "$SECRETS_DIR/wireguard-public.key"
-chmod 600 "$SECRETS_DIR/signer-hmac.secret"
-
-
-# env.runtime
-HMAC_SECRET=$(cat "$SECRETS_DIR/signer-hmac.secret")
-
-cat > "$ENV_RUNTIME" <<EOF
+    cat > "$ENV_RUNTIME" <<EOF
 SIGNER_URL=${SIGNER_URL}
 SIGNER_HMAC_SECRET=${HMAC_SECRET}
 EOF
 
-chmod 600 "$ENV_RUNTIME"
+    chmod 600 "$ENV_RUNTIME"
+    echo "Generated: env.runtime"
+else
+    echo "Skipping env.runtime (no HMAC secret)"
+fi
 
-# wallet
-#hot/cold subfolder
 echo ""
-echo "Importing wallets..."
+echo "Importing wallets (hot/cold optional)..."
 
 FOUND=0
 
 for WALLET_TYPE_DIR in "$USB_MOUNT/wallet"/*/
 do
-    [ -d "$WALLET_TYPE_DIR" ] || continue
+    [[ -d "$WALLET_TYPE_DIR" ]] || continue
 
-    WALLET_JSON="$WALLET_TYPE_DIR/wallet.json"
+    WALLET_TYPE=$(basename "$WALLET_TYPE_DIR")
 
-    if [ ! -f "$WALLET_JSON" ]; then
-        echo "Skipping $(basename "$WALLET_TYPE_DIR") (no wallet.json)"
+    # nur hot/cold erlauben (optional harte Validierung)
+    if [[ "$WALLET_TYPE" != "hot" && "$WALLET_TYPE" != "cold" ]]; then
+        echo "Skipping unknown wallet type: $WALLET_TYPE"
+        continue
+    fi
+
+    WALLET_META="$WALLET_TYPE_DIR/metadata.json"
+
+    if [[ ! -f "$WALLET_META" ]]; then
+        echo "Skipping $WALLET_TYPE (no metadata.json)"
         continue
     fi
 
     FOUND=1
 
-    WALLET_TYPE=$(basename "$WALLET_TYPE_DIR")
-
     echo ""
     echo "----------------------------------"
     echo "Wallet type: $WALLET_TYPE"
-    echo "File: $WALLET_JSON"
     echo "----------------------------------"
 
-    # local copy
     mkdir -p "$WALLET_DIR/$WALLET_TYPE"
-    cp "$WALLET_TYPE_DIR/"* "$WALLET_DIR/$WALLET_TYPE/"
 
+    cp "$WALLET_TYPE_DIR/"* "$WALLET_DIR/$WALLET_TYPE/"
     chmod 644 "$WALLET_DIR/$WALLET_TYPE"/*
 
-    # register in middleware
     curl \
       --fail \
       --show-error \
@@ -93,29 +102,18 @@ do
       -X POST \
       "${MIDDLEWARE_URL}/api/v1/wallets" \
       -H "Content-Type: application/json" \
-      --data @"$WALLET_JSON"
+      --data @"$WALLET_META"
 
     echo "OK: $WALLET_TYPE registered"
 done
 
-if [ "$FOUND" -eq 0 ]; then
-    echo "WARNING: no wallets found"
+if [[ "$FOUND" -eq 0 ]]; then
+    echo "WARNING: no wallets found (hot/cold missing)"
 fi
 
-
 sync
-
 umount "$USB_MOUNT"
 
 echo ""
-echo "Imported:"
-echo "  secrets/wireguard-public.key"
-echo "  secrets/signer-hmac.secret"
-echo "  wallet/hot-wallet.xpub"
-echo "  wallet/wallet.json"
-echo ""
-echo "Generated:"
-echo "  env.runtime"
-echo ""
-echo "Signer URL:"
-echo "  ${SIGNER_URL}"
+echo "Import complete"
+echo "Signer URL: ${SIGNER_URL}"

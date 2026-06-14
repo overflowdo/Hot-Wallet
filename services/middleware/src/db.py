@@ -27,12 +27,10 @@ def set_chain_state(network: str, height: int, tip_hash: str):
         c.commit()
 
 def fetch_all(query: str, params: tuple = ()):
-    try:
-        with conn.cursor() as cur:
+    with conn() as c:
+        with c.cursor() as cur:
             cur.execute(query, params)
             return cur.fetchall()
-    finally:
-        conn.close()
 
 
 
@@ -80,6 +78,9 @@ def create_wallet(
 
     conn.commit()
 
+def upsert_psbt_artifact():
+    return
+
 
 #State logging für psbts (unterscheidung zu intent möglcih, aber unnötig kompliziert)
 def insert_psbt(psbt: dict):
@@ -97,7 +98,7 @@ def insert_psbt(psbt: dict):
                     meta,
                     error_code
                 )
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
             """, (
                 psbt.get("id"),
                 psbt.get("type"),
@@ -215,6 +216,7 @@ def get_psbt_db_id(psbt_id: str) -> int | None:
             """, (psbt_id,))
             row = cur.fetchone()
             return row["id"] if row else None
+        c.commit()
         
 #Deduplication check, ob es psbt schon gab
 def psbt_created_seen(psbt_id: str, state: str = "INTENT_CREATED") -> bool:

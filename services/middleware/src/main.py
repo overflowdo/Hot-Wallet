@@ -314,9 +314,10 @@ async def handle_intent(psbt: dict):
                 "type": psbt["type"],
                 "state": "INTENT_CREATED",        
                 "amount_sats": psbt["amount_sats"],
+                "source_address": psbt["source_address"],
                 "target_address": psbt["target_address"],
                 "meta": {},
-                "error_code": psbt["error_code"],
+                "error_code": "-",
             }
         )
 
@@ -345,6 +346,7 @@ async def handle_intent(psbt: dict):
                     "type": psbt["type"],
                     "state": "OPA_REJECTED",        
                     "amount_sats": psbt["amount_sats"],
+                    "source_address": psbt["source_address"],
                     "target_address": psbt["target_address"],
                     "meta": {},
                     "error_code": psbt["error_code"],
@@ -358,6 +360,7 @@ async def handle_intent(psbt: dict):
                 "type": psbt["type"],
                 "state": "OPA_APPROVED",        
                 "amount_sats": psbt["amount_sats"],
+                "source_address": psbt["source_address"],
                 "target_address": psbt["target_address"],
                 "meta": {},
                 "error_code": psbt["error_code"],
@@ -386,6 +389,7 @@ async def handle_psbt_created(psbt: dict):
             "type": psbt["type"],
             "state": "PSBT_CREATED",        
             "amount_sats": psbt["amount_sats"],
+            "source_address": psbt["source_address"],
             "target_address": psbt["target_address"],
             "meta": {},
             "error_code": psbt["error_code"],
@@ -422,6 +426,7 @@ async def handle_psbt_created(psbt: dict):
                     "type": psbt["type"],
                     "state": "SIGNING_FAILED",        
                     "amount_sats": psbt["amount_sats"],
+                    "source_address": psbt["source_address"],
                     "target_address": psbt["target_address"],
                     "meta": {},
                     "error_code": psbt["error_code"],
@@ -437,6 +442,7 @@ async def handle_psbt_created(psbt: dict):
                     "type": psbt["type"],
                     "state": "SIGNING_FAILED",        
                     "amount_sats": psbt["amount_sats"],
+                    "source_address": psbt["source_address"],
                     "target_address": psbt["target_address"],
                     "meta": {},
                     "error_code": psbt["error_code"],
@@ -451,6 +457,7 @@ async def handle_psbt_created(psbt: dict):
                 "type": psbt["type"],
                 "state": "PSBT_SIGNED",        
                 "amount_sats": psbt["amount_sats"],
+                "source_address": psbt["source_address"],
                 "target_address": psbt["target_address"],
                 "meta": {},
                 "error_code": psbt["error_code"],
@@ -493,8 +500,10 @@ async def handle_psbt_failed(psbt: dict):
                 "type": psbt["type"],
                 "state": "PSBT_FAILED",        
                 "amount_sats": psbt["amount_sats"],
+                "source_address": psbt["source_address"],
                 "target_address": psbt["target_address"],
                 "meta": {},
+                "error_code": psbt["error_code"]",
             }
         )
 

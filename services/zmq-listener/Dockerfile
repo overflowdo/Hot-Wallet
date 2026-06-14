@@ -1,9 +1,8 @@
 FROM python:3.12-slim
 
-RUN pip install zmq python-bitcoinlib
 
 WORKDIR /app
-
-COPY listener.py .
+COPY requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
 
 CMD ["python", "listener.py"]
