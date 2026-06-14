@@ -389,8 +389,28 @@ async def handle_intent(psbt: dict):
             "sent_at": utc_now_iso()
     }).encode()
 )
+####################################################################
 
 # Nach OPA senden zu Tx-builder (forwarding in middleware nc subscribe (oben))
+
+#Nach Tx-builder, WENN FEHLSCHLUG
+async def handle_psbt_failed(psbt: dict):
+    psbt_id = psbt["psbt_id"]
+
+    await asyncio.to_thread(
+        insert_psbt, {
+            "id": psbt["id"],
+            "type": psbt["type"],
+            "state": "PSBT_FAILED",        
+            "amount_sats": psbt["amount_sats"],
+            "source_address": psbt["source_address"],
+            "target_address": psbt["target_address"],
+            "meta": {},
+            "error_code": psbt["error_code"],
+        }
+    )
+
+
 #Hier funktion nach Tx-builder, wenn ERFOLGREICH
 async def handle_psbt_created(psbt: dict):
     psbt_id = psbt["psbt_id"]
@@ -498,24 +518,7 @@ async def sign_psbt(psbt: dict):
             #Notify Human via ntfy for start of manual proess
             return
         
-        
-####################################################################
-#Nach Tx-builder, WENN FEHLSCHLUG
-async def handle_psbt_failed(psbt: dict):
-    psbt_id = psbt["psbt_id"]
-
-    await asyncio.to_thread(
-        insert_psbt, {
-            "id": psbt["id"],
-            "type": psbt["type"],
-            "state": "PSBT_FAILED",        
-            "amount_sats": psbt["amount_sats"],
-            "source_address": psbt["source_address"],
-            "target_address": psbt["target_address"],
-            "meta": {},
-            "error_code": psbt["error_code"],
-        }
-    )
+    
 
 #Sprich NixOs Signer per WG und HMAC an
 async def sign_psbt_on_signer(

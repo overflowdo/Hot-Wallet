@@ -5,16 +5,18 @@ USB_DEVICE="/dev/disk/by-label/USB"
 USB_MOUNT="/mnt/usb"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(realpath "${SCRIPT_DIR}/../..")"
+PROJECT_ROOT="$(realpath "${SCRIPT_DIR}/../../..")"
 
 SECRETS_DIR="${PROJECT_ROOT}/secrets"
-WALLET_DIR="${PROJECT_ROOT}/wallet"
-ENV_RUNTIME="${PROJECT_ROOT}/env.runtime"
+WALLET_DIR="${PROJECT_ROOT}/wallets"
+ENV_RUNTIME="${PROJECT_ROOT}/secrets/env.runtime"
 
 SIGNER_IP="10.10.0.2"
 SIGNER_URL="http://${SIGNER_IP}:8080"
 
 MIDDLEWARE_URL="http://localhost:3000"
+
+echo "Writing to host docker mount: $PROJECT_ROOT/middleware_data"
 
 echo "=== Import Hot/Cold Signer ==="
 

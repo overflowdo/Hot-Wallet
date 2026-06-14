@@ -18,7 +18,7 @@ services:
       BITCOIND_RPC_USER: user
       BITCOIND_RPC_PASS: pass
     volumes:
-      - tx_builder_data:/var/lib/btc-work
+      - tx_builder_data:/var/lib/tx-builder
     depends_on:
       - nats
       - postgres
@@ -33,13 +33,13 @@ services:
       OPA_URL: http://opa:8181/v1/data/policy/hot/allow
       SIGNER_URL: http://10.50.0.1:8080
       DATABASE_URL: postgresql://user:pass@postgres:5432/btc
-    env_file:
-      - env.runtime
     depends_on:
       - nats
       - opa
     volumes:
-      - ./wallet:/run/wallet:ro
+      - ./middleware_data/wallets:/run/wallets:ro
+      - ./middleware_data/secrets:/run/secrets:ro
+      - ./middleware_data:/run
     ports:
     - "3000:3000"
 
@@ -98,3 +98,4 @@ volumes:
   tx_builder_data:
   postgres_data:
   bitcoind_data:
+  middleware_data:
