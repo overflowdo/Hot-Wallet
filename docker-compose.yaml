@@ -79,20 +79,20 @@ services:
     ports:
       - "5432:5432"
     volumes:
-    - postgres_data:/var/lib/postgresql/data
+    - postgres_data:/run/postgresql/data
     - ./services/postgres/001_psbt.sql:/docker-entrypoint-initdb.d/001_psbt.sql:ro
     - ./services/postgres/002_wallet.sql:/docker-entrypoint-initdb.d/002_wallet.sql:ro
 
-  listener:
-    build: ./services/zmq-listener
-    container_name: btc-zmq-listener
-    restart: unless-stopped
-    environment:
-      ZMQ_ENDPOINT: "tcp://10.50.0.10:28332"
-      WHITELIST_PATH: "/data/whitelist.json"
-      NATS_URL: "nats://nats:4222"
-    volumes:
-      - ./data:/data
+# listener:
+#   build: ./services/zmq-listener
+#   container_name: btc-zmq-listener
+#   restart: unless-stopped
+#   environment:
+ #    ZMQ_ENDPOINT: "tcp://10.50.0.10:28332"
+#     WHITELIST_PATH: "/data/whitelist.json"
+#     NATS_URL: "nats://nats:4222"
+#   volumes:
+#     - ./data:/data
 
 volumes:
   tx_builder_data:
