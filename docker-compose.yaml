@@ -40,6 +40,8 @@ services:
       - opa
     volumes:
       - ./wallet:/run/wallet:ro
+    ports:
+    - "3000:3000"
 
   opa:
     image: openpolicyagent/opa:0.63.0

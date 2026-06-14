@@ -14,7 +14,7 @@ ENV_RUNTIME="${PROJECT_ROOT}/env.runtime"
 SIGNER_IP="10.10.0.2"
 SIGNER_URL="http://${SIGNER_IP}:8080"
 
-MIDDLEWARE_URL="${MIDDLEWARE_URL:-http://localhost:3000}"
+MIDDLEWARE_URL="http://localhost:3000"
 
 echo "=== Import Hot/Cold Signer ==="
 
@@ -94,17 +94,20 @@ do
 
     cp "$WALLET_TYPE_DIR/"* "$WALLET_DIR/$WALLET_TYPE/"
     chmod 644 "$WALLET_DIR/$WALLET_TYPE"/*
-
-    curl \
+    
+    if curl \
       --fail \
       --show-error \
       --silent \
       -X POST \
-      "${MIDDLEWARE_URL}/api/v1/wallets" \
+      "${MIDDLEWARE_URL}/api/v1/importWallet" \
       -H "Content-Type: application/json" \
       --data @"$WALLET_META"
-
-    echo "OK: $WALLET_TYPE registered"
+    then
+      echo "OK: $WALLET_TYPE registered"
+    else
+      echo "middleware not reachable, container running?"
+    fi
 done
 
 if [[ "$FOUND" -eq 0 ]]; then

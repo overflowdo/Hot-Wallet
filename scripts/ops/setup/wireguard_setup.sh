@@ -10,7 +10,7 @@ fi
 
 if command -v apt >/dev/null 2>&1; then
     apt update
-    apt install -y wireguard wireguard-tools qrencode
+    apt install -y wireguard wireguard-tools qrencode curl
 
 elif command -v dnf >/dev/null 2>&1; then
     dnf install -y wireguard-tools qrencode

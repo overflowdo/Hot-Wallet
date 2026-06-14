@@ -5,7 +5,7 @@ import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
 import httpx
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi import Body, FastAPI, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel
 from typing import Optional
 import asyncio
@@ -106,22 +106,33 @@ async def health():
         "status": "ok"
     }
 
-@app.post("/api/v1/wallets")
-async def add_wallet(req: WalletCreateRequest):
+@app.post("/api/v1/importWallet")
+async def add_wallet(metadata: dict = Body(...)):
+
+    required_fields = ["wallet_type", "network", "xpub"]
+
+    missing = [f for f in required_fields if f not in metadata]
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Missing fields: {missing}"
+        )
+
+    wallet_id = metadata.get("wallet_id") or metadata["xpub"][:12]
 
     await asyncio.to_thread(
         create_wallet,
-        req.wallet_id,
-        req.wallet_type,
-        req.network,
-        req.xpub,
-        req.derivation_path,
-        req.master_fingerprint
+        wallet_id,
+        metadata["wallet_type"],
+        metadata["network"],
+        metadata["xpub"],
+        metadata.get("derivation_path", ""),
+        metadata.get("master_fingerprint", "")
     )
 
     return {
         "success": True,
-        "wallet_id": req.wallet_id
+        "wallet_id": wallet_id
     }
 
 @app.post("/api/v1/psbt/extract", response_model=PsbtExtractResponse)
@@ -379,7 +390,8 @@ async def handle_intent(psbt: dict):
     }).encode()
 )
 
-# Nach OPA senden zu Tx-builder
+# Nach OPA senden zu Tx-builder (forwarding in middleware nc subscribe (oben))
+#Hier funktion nach Tx-builder, wenn ERFOLGREICH
 async def handle_psbt_created(psbt: dict):
     psbt_id = psbt["psbt_id"]
 
@@ -405,17 +417,15 @@ async def handle_psbt_created(psbt: dict):
         None
     )
 
-    signed = None
-
-    if psbt.set("state") == "hot-tx":
-        await sign_psbt()
+    #refill und hot-tx müssen gesigned werden
+    await sign_psbt()
 
 
-async def handle_psbt_created(psbt: dict):
+async def sign_psbt(psbt: dict):
         #Weiterleitung zu Sign Funktion
         try:
             signed = await sign_psbt_on_signer(
-                psbt_id,
+                psbt["psbt_id"],
                 psbt["psbt_ref"],
                 psbt["sha256"]
             )
@@ -467,7 +477,7 @@ async def handle_psbt_created(psbt: dict):
         # store signed PSBT artifact
         await asyncio.to_thread(
             upsert_psbt_artifact,
-            psbt_id,
+            psbt["psbt_id"],
             "signed",
             psbt["signed_psbt_ref"],
             psbt.get("sha256"),
@@ -490,22 +500,22 @@ async def handle_psbt_created(psbt: dict):
         
         
 ####################################################################
-#Nach Tx-builder
+#Nach Tx-builder, WENN FEHLSCHLUG
 async def handle_psbt_failed(psbt: dict):
     psbt_id = psbt["psbt_id"]
 
     await asyncio.to_thread(
-            insert_psbt, {
-                "id": psbt["id"],
-                "type": psbt["type"],
-                "state": "PSBT_FAILED",        
-                "amount_sats": psbt["amount_sats"],
-                "source_address": psbt["source_address"],
-                "target_address": psbt["target_address"],
-                "meta": {},
-                "error_code": psbt["error_code"]",
-            }
-        )
+        insert_psbt, {
+            "id": psbt["id"],
+            "type": psbt["type"],
+            "state": "PSBT_FAILED",        
+            "amount_sats": psbt["amount_sats"],
+            "source_address": psbt["source_address"],
+            "target_address": psbt["target_address"],
+            "meta": {},
+            "error_code": psbt["error_code"],
+        }
+    )
 
 #Sprich NixOs Signer per WG und HMAC an
 async def sign_psbt_on_signer(
