@@ -30,7 +30,7 @@ services:
     environment:
       SERVICE_NAME: middleware
       NATS_URL: nats://nats:4222
-      OPA_URL: http://opa:8181/v1/data/policy/hot/allow
+      OPA_URL: http://opa:8181
       SIGNER_URL: http://10.50.0.1:8080
       DATABASE_URL: postgresql://user:pass@postgres:5432/btc
     depends_on:
@@ -51,10 +51,12 @@ services:
       - "--server"
       - "--addr=0.0.0.0:8181"
       - "/policies"
+      - "/data"
     ports:
       - "8181:8181"
     volumes:
       - ./.services/opa/policies:/policies:ro
+      - ./.services/opa/data:/data:ro
 
   nats:
     image: nats:latest

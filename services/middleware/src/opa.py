@@ -1,14 +1,13 @@
 import os
 import httpx
 
-OPA_URL = os.getenv("OPA_URL", "http://opa:8181/v1/data/policy/hot/allow")
+OPA_URL = os.getenv("OPA_URL", "http://opa:8181/v1/data/policy/hot/decision")
 
 OPA_URL = os.getenv("OPA_URL", "http://opa:8181")
 
 class OPAClient:
-    class OPAClient:
-        def __init__(self, base_url: str = OPA_URL):
-            self.base = base_url
+    def __init__(self, base_url: str = OPA_URL):
+        self.base = base_url
 
     async def evaluate_hot_intent(self, intent: dict) -> dict:
         payload = {"input": self.to_opa_input(intent)}
@@ -20,12 +19,19 @@ class OPAClient:
             )
             resp.raise_for_status()
 
-            result = resp.json().get("result", {})
+            raw = resp.json().get("result", {})
+
+            if isinstance(raw, dict):
+                return {
+                    "allow": raw.get("allow", False),
+                    "reasons": raw.get("reasons", []),
+                    "limits": raw.get("limits", {}),
+                }
 
             return {
-                "allow": result.get("allow", False),
-                "reasons": result.get("reasons", []),
-                "limits": result.get("limits", {}),
+                "allow": bool(raw),
+                "reasons": [],
+                "limits": {},
             }
 
     @staticmethod
@@ -33,8 +39,7 @@ class OPAClient:
         return {
             "amount_sats": intent.get("amount_sats", 0),
             "target_address": intent.get("target_address", ""),
-            # WICHTIG: id statt intent_id
-            "request_id": intent.get("intent_id", ""),
+            "request_id": intent.get("id", ""),
             "network": intent.get("network", "regtest"),
             "actor": "middleware",
             "reason": intent.get("reason", ""),

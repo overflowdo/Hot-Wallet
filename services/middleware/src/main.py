@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from typing import Optional
 import asyncio
 
-from .opa import OPAClient,to_opa_input
+from .opa import OPAClient
 
 from embit.psbt import PSBT
 
@@ -310,7 +310,7 @@ async def handle_intent(psbt: dict):
         return
 
     if psbt.get("type") == "refill":
-        psbt.get("source_address") = "cold"
+        psbt["source_address"] = "cold"
     elif psbt.get("type") == "hot-tx":
         psbt.get("source_address") = "hot"
 
@@ -341,7 +341,7 @@ async def handle_intent(psbt: dict):
             actor="middleware",
             allow=allowed,
             reasons=reasons,
-            input_data=opa_input,
+            input_data=psbt,
             result=result
         )
 

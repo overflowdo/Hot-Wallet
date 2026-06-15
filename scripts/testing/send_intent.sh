@@ -9,7 +9,7 @@ PAYLOAD=$(jq -n \
   --arg address "cold" \
   --argjson amount 1000 \
   '{
-      intent_id: $id,
+      id: $id,
       type: "refill",
       network: $network,
       amount_sats: $amount,
@@ -27,7 +27,7 @@ PAYLOAD=$(jq -n \
   --arg address "bcrt1qanotherexampledestinationaddress00000000000" \
   --argjson amount 1000 \
   '{
-      intent_id: $id,
+      id: $id,
       type: "hot-tx",
       network: $network,
       amount_sats: $amount,
@@ -45,7 +45,7 @@ PAYLOAD=$(jq -n \
   --arg address "bcrt1qanotherexampledestinationaddress00000000000" \
   --argjson amount 5000001 \
   '{
-      intent_id: $id,
+      id: $id,
       type: "hot-tx",
       network: $network,
       amount_sats: $amount,
@@ -63,7 +63,7 @@ PAYLOAD=$(jq -n \
   --arg address "bcrt1qanotherexampledestinationaddress00000000001" \
   --argjson amount 1000 \
   '{
-      intent_id: $id,
+      id: $id,
       type: "hot-tx",
       network: $network,
       amount_sats: $amount,
@@ -81,7 +81,7 @@ PAYLOAD=$(jq -n \
   --arg address "bcrt1qanotherexampledestinationaddress00000000000" \
   --argjson amount 1000 \
   '{
-      intent_id: $id,
+      id: $id,
       type: "hot-tx",
       network: $network,
       amount_sats: $amount,
