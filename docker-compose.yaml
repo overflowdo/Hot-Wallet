@@ -44,10 +44,11 @@ services:
     - "8080:8080"
 
   opa:
-    image: openpolicyagent/opa:0.63.0
+    image: openpolicyagent/opa:1.17.1
     container_name: opa
     command:
       - "run"
+      - "--watch"
       - "--server"
       - "--addr=0.0.0.0:8181"
       - "/policies"
@@ -55,8 +56,8 @@ services:
     ports:
       - "8181:8181"
     volumes:
-      - ./.services/opa/policies:/policies:ro
-      - ./.services/opa/data:/data:ro
+      - ./services/opa/policies:/policies:ro
+      - ./services/opa/data:/data:ro
 
   nats:
     image: nats:latest

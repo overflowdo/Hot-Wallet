@@ -73,7 +73,7 @@ CREATE TABLE IF NOT EXISTS btc.opa_decision (
   reasons          TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
 
   input            JSONB NOT NULL,             -- exact OPA input
-  result           JSONB NOT NULL,             -- exact OPA result
+  result           JSONB NOT NULL,             -- exact OPA output
 
   created_utc      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
