@@ -31,10 +31,10 @@ deny["amount exceeds limit"] {
 }
 
 deny["target not whitelisted"] {
-  data.hot.whitelist_addresses != null
-  not input.target_address in data.hot.whitelist_addresses
+  not data.hot.whitelist_addresses[_] == input.target_address
 }
 
+#Später extra authentifizierung? hex code im meta?
 deny["tag required"] {
   data.hot.require_tag == true
   not input.meta.tag

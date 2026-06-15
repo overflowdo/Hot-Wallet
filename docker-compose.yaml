@@ -41,7 +41,7 @@ services:
       - ./middleware_data/secrets:/run/secrets:ro
       - ./middleware_data:/run
     ports:
-    - "3000:3000"
+    - "8080:8080"
 
   opa:
     image: openpolicyagent/opa:0.63.0

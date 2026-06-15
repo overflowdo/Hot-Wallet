@@ -14,7 +14,36 @@ ENV_RUNTIME="${PROJECT_ROOT}/middleware_data/secrets/env.runtime"
 SIGNER_IP="10.10.0.2"
 SIGNER_URL="http://${SIGNER_IP}:8080"
 
-MIDDLEWARE_URL="http://localhost:3000"
+MIDDLEWARE_URL="http://localhost:8080"
+
+patch_metadata() {
+  local meta_file="$1"
+  local wallet_type="$2"
+  local wallet_dir="$3"
+
+  local xpub_file="$wallet_dir/xpub.txt"
+
+  if [[ ! -f "$xpub_file" ]]; then
+    echo "ERROR: missing xpub.txt in $wallet_dir" >&2
+    return 1
+  fi
+
+  local xpub
+  xpub=$(cat "$xpub_file")
+
+  tmp=$(mktemp)
+
+  jq \
+    --arg wallet_type "$wallet_type" \
+    --arg xpub "$xpub" \
+    '
+    .wallet_type = ($wallet_type)
+    | .xpub = ($xpub)
+    ' "$meta_file" > "$tmp"
+
+  mv "$tmp" "$meta_file"
+}
+
 
 echo "Writing to host docker mount: $PROJECT_ROOT/middleware_data"
 
@@ -51,8 +80,8 @@ if [[ -f "$SECRETS_DIR/signer-hmac.secret" ]]; then
     HMAC_SECRET=$(cat "$SECRETS_DIR/signer-hmac.secret")
 
     cat > "$ENV_RUNTIME" <<EOF
-SIGNER_URL=${SIGNER_URL}
-SIGNER_HMAC_SECRET=${HMAC_SECRET}
+    SIGNER_URL=${SIGNER_URL}
+    SIGNER_HMAC_SECRET=${HMAC_SECRET}
 EOF
 
     chmod 600 "$ENV_RUNTIME"
@@ -84,6 +113,8 @@ do
         echo "Skipping $WALLET_TYPE (no metadata.json)"
         continue
     fi
+
+    patch_metadata "$WALLET_META" "$WALLET_TYPE" "$WALLET_TYPE_DIR"
 
     FOUND=1
 

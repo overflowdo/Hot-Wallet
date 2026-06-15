@@ -10,8 +10,7 @@ from pydantic import BaseModel
 from typing import Optional
 import asyncio
 
-from .opa_client import OPAClient
-from .opa_mapper import to_opa_input
+from .opa import OPAClient,to_opa_input
 
 from embit.psbt import PSBT
 
@@ -118,12 +117,12 @@ async def add_wallet(metadata: dict = Body(...)):
             detail=f"Missing fields: {missing}"
         )
 
-    wallet_id = metadata.get("wallet_id") or metadata["xpub"][:12]
+    wallet_id = metadata.get("wallet_id") or metadata["wallet_type"][:12] or metadata["xpub"][:12]
 
     await asyncio.to_thread(
         create_wallet,
         wallet_id,
-        metadata["wallet_type"],
+        metadata.get("wallet_type") or "external",
         metadata["network"],
         metadata["xpub"],
         metadata.get("derivation_path", ""),
@@ -307,32 +306,28 @@ opa = OPAClient()
 async def handle_intent(psbt: dict):
 
     #Deduplication of Tx because of race conditions check
-    if await asyncio.to_thread(psbt_created_seen, psbt["id"], "INTENT_CREATED"):
+    if await asyncio.to_thread(psbt_created_seen, psbt.get("id"), "INTENT_CREATED"):
         return
 
     if psbt.get("type") == "refill":
-        psbt["source_address"] = "cold"
+        psbt.get("source_address") = "cold"
     elif psbt.get("type") == "hot-tx":
-        psbt["source_address"] = "hot"
-
-        # Nur Hot braucht OPA decision, cold wird vom menschen vor Ausführung überprüft
-    
-        opa_input = to_opa_input(psbt)
+        psbt.get("source_address") = "hot"
 
         await asyncio.to_thread(
             insert_psbt,{
-                "id": psbt["id"],
-                "type": psbt["type"],
+                "id": psbt.get("id"),
+                "type": psbt.get("type"),
                 "state": "INTENT_CREATED",        
-                "amount_sats": psbt["amount_sats"],
-                "source_address": psbt["source_address"],
-                "target_address": psbt["target_address"],
+                "amount_sats": psbt.get("amount_sats"),
+                "source_address": psbt.get("source_address"),
+                "target_address": psbt.get("target_address"),
                 "meta": {},
                 "error_code": "-",
             }
         )
 
-        decision = await opa.evaluate_hot_intent(opa_input)
+        decision = await opa.evaluate_hot_intent(psbt)
 
         result = decision.get("result", {})
         allowed = result.get("allow", False)
@@ -341,7 +336,7 @@ async def handle_intent(psbt: dict):
         #DB logging
         await asyncio.to_thread(
             insert_opa_decision,
-            psbt_id=psbt["id"],
+            psbt_id=psbt.get("id"),
             policy_name="policy.hot",
             actor="middleware",
             allow=allowed,
@@ -353,35 +348,35 @@ async def handle_intent(psbt: dict):
         if not allowed:
             await asyncio.to_thread(
                 insert_psbt, {
-                    "id": psbt["id"],
-                    "type": psbt["type"],
+                    "id": psbt.get("id"),
+                    "type": psbt.get("type"),
                     "state": "OPA_REJECTED",        
-                    "amount_sats": psbt["amount_sats"],
-                    "source_address": psbt["source_address"],
-                    "target_address": psbt["target_address"],
+                    "amount_sats": psbt.get("amount_sats"),
+                    "source_address": psbt.get("source_address"),
+                    "target_address": psbt.get("target_address"),
                     "meta": {},
-                    "error_code": psbt["error_code"],
+                    "error_code": psbt.get("error_code") or reasons,
                 }
             )
             return
 
         await asyncio.to_thread(
             insert_psbt, {
-                "id": psbt["id"],
-                "type": psbt["type"],
+                "id": psbt.get("id"),
+                "type": psbt.get("type"),
                 "state": "OPA_APPROVED",        
-                "amount_sats": psbt["amount_sats"],
-                "source_address": psbt["source_address"],
-                "target_address": psbt["target_address"],
+                "amount_sats": psbt.get("amount_sats"),
+                "source_address": psbt.get("source_address"),
+                "target_address": psbt.get("target_address"),
                 "meta": {},
-                "error_code": psbt["error_code"],
+                "error_code": psbt.get("error_code"),
             }
         )
 
     await nc.publish(
         "psbt.build.requested",
         json.dumps({
-            "psbt_id": psbt["psbt_id"],
+            "psbt_id": psbt.get("psbt_id"),
             "network": psbt.get("network"),
             "amount_sats": psbt.get("amount_sats"),
             "target_address": psbt.get("target_address"),
@@ -395,36 +390,36 @@ async def handle_intent(psbt: dict):
 
 #Nach Tx-builder, WENN FEHLSCHLUG
 async def handle_psbt_failed(psbt: dict):
-    psbt_id = psbt["psbt_id"]
+    psbt_id = psbt.get("psbt_id")
 
     await asyncio.to_thread(
         insert_psbt, {
-            "id": psbt["id"],
-            "type": psbt["type"],
+            "id": psbt.get("id"),
+            "type": psbt.get("type"),
             "state": "PSBT_FAILED",        
-            "amount_sats": psbt["amount_sats"],
-            "source_address": psbt["source_address"],
-            "target_address": psbt["target_address"],
+            "amount_sats": psbt.get("amount_sats"),
+            "source_address": psbt.get("source_address"),
+            "target_address": psbt.get("target_address"),
             "meta": {},
-            "error_code": psbt["error_code"],
+            "error_code": psbt.get("error_code"),
         }
     )
 
 
 #Hier funktion nach Tx-builder, wenn ERFOLGREICH
 async def handle_psbt_created(psbt: dict):
-    psbt_id = psbt["psbt_id"]
+    psbt_id = psbt.get("psbt_id")
 
     await asyncio.to_thread(
         insert_psbt, {
-            "id": psbt["id"],
-            "type": psbt["type"],
+            "id": psbt.get("id"),
+            "type": psbt.get("type"),
             "state": "PSBT_CREATED",        
-            "amount_sats": psbt["amount_sats"],
-            "source_address": psbt["source_address"],
-            "target_address": psbt["target_address"],
+            "amount_sats": psbt.get("amount_sats"),
+            "source_address": psbt.get("source_address"),
+            "target_address": psbt.get("target_address"),
             "meta": {},
-            "error_code": psbt["error_code"],
+            "error_code": psbt.get("error_code"),
         }
     )
 
@@ -432,8 +427,8 @@ async def handle_psbt_created(psbt: dict):
         upsert_psbt_artifact,
         psbt_id,
         "unsigned",
-        psbt["psbt_ref"],
-        psbt["sha256"],
+        psbt.get("psbt_ref"),
+        psbt.get("sha256"),
         None
     )
 
@@ -445,21 +440,21 @@ async def sign_psbt(psbt: dict):
         #Weiterleitung zu Sign Funktion
         try:
             signed = await sign_psbt_on_signer(
-                psbt["psbt_id"],
-                psbt["psbt_ref"],
-                psbt["sha256"]
+                psbt.get("psbt_id"),
+                psbt.get("psbt_ref"),
+                psbt.get("sha256")
             )
         except Exception as e:
             await asyncio.to_thread(
                 insert_psbt, {
-                    "id": psbt["id"],
-                    "type": psbt["type"],
+                    "id": psbt.get("id"),
+                    "type": psbt.get("type"),
                     "state": "SIGNING_FAILED",        
-                    "amount_sats": psbt["amount_sats"],
-                    "source_address": psbt["source_address"],
-                    "target_address": psbt["target_address"],
+                    "amount_sats": psbt.get("amount_sats"),
+                    "source_address": psbt.get("source_address"),
+                    "target_address": psbt.get("target_address"),
                     "meta": {},
-                    "error_code": psbt["error_code"],
+                    "error_code": psbt.get("error_code"),
                 }
             )
             return
@@ -468,14 +463,14 @@ async def sign_psbt(psbt: dict):
         if signed is None:
             await asyncio.to_thread(
                 insert_psbt, {
-                    "id": psbt["id"],
-                    "type": psbt["type"],
+                    "id": psbt.get("id"),
+                    "type": psbt.get("type"),
                     "state": "SIGNING_FAILED",        
-                    "amount_sats": psbt["amount_sats"],
-                    "source_address": psbt["source_address"],
-                    "target_address": psbt["target_address"],
+                    "amount_sats": psbt.get("amount_sats"),
+                    "source_address": psbt.get("source_address"),
+                    "target_address": psbt.get("target_address"),
                     "meta": {},
-                    "error_code": psbt["error_code"],
+                    "error_code": psbt.get("error_code"),
                 }
             )
             return
@@ -483,23 +478,23 @@ async def sign_psbt(psbt: dict):
         #Nach erfolgreichen Signieren
         await asyncio.to_thread(
             insert_psbt, {
-                "id": psbt["id"],
-                "type": psbt["type"],
+                "id": psbt.get("id"),
+                "type": psbt.get("type"),
                 "state": "PSBT_SIGNED",        
-                "amount_sats": psbt["amount_sats"],
-                "source_address": psbt["source_address"],
-                "target_address": psbt["target_address"],
+                "amount_sats": psbt.get("amount_sats"),
+                "source_address": psbt.get("source_address"),
+                "target_address": psbt.get("target_address"),
                 "meta": {},
-                "error_code": psbt["error_code"],
+                "error_code": psbt.get("error_code"),
             }
         )
 
         # store signed PSBT artifact
         await asyncio.to_thread(
             upsert_psbt_artifact,
-            psbt["psbt_id"],
+            psbt.get("psbt_id"),
             "signed",
-            psbt["signed_psbt_ref"],
+            psbt.get("signed_psbt_ref"),
             psbt.get("sha256"),
             None
         )

@@ -3,50 +3,91 @@
 NATS_CONTAINER="nats-box"
 NATS_SERVER="nats://nats:4222"
 
-PAYLOAD=$(printf '{"id":"%s","type":"refill","network":"%s","amount_sats":%s,"target_address":"%s","meta":{}}' \
-  "t1-refill" \
-  "1000" \
-  "cold")
+PAYLOAD=$(jq -n \
+  --arg id "t1-refill" \
+  --arg network "regtest" \
+  --arg address "cold" \
+  --argjson amount 1000 \
+  '{
+      intent_id: $id,
+      type: "refill",
+      network: $network,
+      amount_sats: $amount,
+      target_address: $address,
+      meta: {}
+   }')
 
 docker exec "$NATS_CONTAINER" \
   nats --server "$NATS_SERVER" pub intent.created "$PAYLOAD"
 
 
-PAYLOAD=$(printf '{"id":"%s","type":"hot-tx","network":"%s","amount_sats":%s,"target_address":"%s","meta":{}}' \
-  "t1-network-deny" \
-  "mainnet" \
-  "1000" \
-  "bcrt1qanotherexampledestinationaddress00000000000")
+PAYLOAD=$(jq -n \
+  --arg id "t1-network-deny" \
+  --arg network "tester" \
+  --arg address "bcrt1qanotherexampledestinationaddress00000000000" \
+  --argjson amount 1000 \
+  '{
+      intent_id: $id,
+      type: "hot-tx",
+      network: $network,
+      amount_sats: $amount,
+      target_address: $address,
+      meta: {}
+   }')
 
 docker exec "$NATS_CONTAINER" \
   nats --server "$NATS_SERVER" pub intent.created "$PAYLOAD"
 
 
-PAYLOAD=$(printf '{"id":"%s","type":"hot-tx","network":"%s","amount_sats":%s,"target_address":"%s","meta":{}}' \
-  "t1-amount deny" \
-  "mainnet" \
-  "5000001" \
-  "bcrt1qanotherexampledestinationaddress00000000000")
+PAYLOAD=$(jq -n \
+  --arg id "t1-amount deny" \
+  --arg network "regtest" \
+  --arg address "bcrt1qanotherexampledestinationaddress00000000000" \
+  --argjson amount 5000001 \
+  '{
+      intent_id: $id,
+      type: "hot-tx",
+      network: $network,
+      amount_sats: $amount,
+      target_address: $address,
+      meta: {}
+   }')
 
 docker exec "$NATS_CONTAINER" \
   nats --server "$NATS_SERVER" pub intent.created "$PAYLOAD"
 
 
-PAYLOAD=$(printf '{"id":"%s","type":"hot-tx","network":"%s","amount_sats":%s,"target_address":"%s","meta":{}}' \
-  "t1-target deny" \
-  "mainnet" \
-  "1000" \
-  "bcrt1qanotherexampledestinationaddress00000000001")
+PAYLOAD=$(jq -n \
+  --arg id "t1-target deny" \
+  --arg network "regtest" \
+  --arg address "bcrt1qanotherexampledestinationaddress00000000001" \
+  --argjson amount 1000 \
+  '{
+      intent_id: $id,
+      type: "hot-tx",
+      network: $network,
+      amount_sats: $amount,
+      target_address: $address,
+      meta: {}
+   }')
 
 docker exec "$NATS_CONTAINER" \
   nats --server "$NATS_SERVER" pub intent.created "$PAYLOAD"
 
 
-PAYLOAD=$(printf '{"id":"%s","type":"hot-tx","network":"%s","amount_sats":%s,"target_address":"%s","meta":{}}' \
-  "t1-hot-tx allow" \
-  "mainnet" \
-  "1000" \
-  "bcrt1qanotherexampledestinationaddress00000000000")
+PAYLOAD=$(jq -n \
+  --arg id "t1-hot-tx allow" \
+  --arg network "regtest" \
+  --arg address "bcrt1qanotherexampledestinationaddress00000000000" \
+  --argjson amount 1000 \
+  '{
+      intent_id: $id,
+      type: "hot-tx",
+      network: $network,
+      amount_sats: $amount,
+      target_address: $address,
+      meta: {}
+   }')
 
 docker exec "$NATS_CONTAINER" \
   nats --server "$NATS_SERVER" pub intent.created "$PAYLOAD"

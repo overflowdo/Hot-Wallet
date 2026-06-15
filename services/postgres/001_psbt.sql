@@ -78,8 +78,6 @@ CREATE TABLE IF NOT EXISTS btc.opa_decision (
   created_utc      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_policy_psbt_created ON btc.policy_decision (psbt_id, created_utc DESC);
-CREATE INDEX IF NOT EXISTS idx_policy_name_created ON btc.policy_decision (policy_name, created_utc DESC);
 
 -- gen_random_uuid() needs pgcrypto
 CREATE EXTENSION IF NOT EXISTS pgcrypto;

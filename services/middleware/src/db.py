@@ -48,35 +48,36 @@ def create_wallet(
     derivation_path: str | None,
     master_fingerprint: str | None
 ):
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO btc.wallet (
-                wallet_id,
-                wallet_type,
-                network,
-                xpub,
-                derivation_path,
-                master_fingerprint
+    with conn() as c:
+        with c.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO btc.wallet (
+                    wallet_id,
+                    wallet_type,
+                    network,
+                    xpub,
+                    derivation_path,
+                    master_fingerprint
+                )
+                VALUES (%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (wallet_id)
+                DO UPDATE SET
+                    xpub = EXCLUDED.xpub,
+                    derivation_path = EXCLUDED.derivation_path,
+                    master_fingerprint = EXCLUDED.master_fingerprint
+                """,
+                (
+                    wallet_id,
+                    wallet_type,
+                    network,
+                    xpub,
+                    derivation_path,
+                    master_fingerprint
+                )
             )
-            VALUES (%s,%s,%s,%s,%s,%s)
-            ON CONFLICT (wallet_id)
-            DO UPDATE SET
-                xpub = EXCLUDED.xpub,
-                derivation_path = EXCLUDED.derivation_path,
-                master_fingerprint = EXCLUDED.master_fingerprint
-            """,
-            (
-                wallet_id,
-                wallet_type,
-                network,
-                xpub,
-                derivation_path,
-                master_fingerprint
-            )
-        )
 
-    conn.commit()
+        c.commit()
 
 def upsert_psbt_artifact():
     return
@@ -180,7 +181,7 @@ def insert_opa_decision(
 
             # 2. insert policy decision
             cur.execute("""
-                INSERT INTO btc.policy_decision (
+                INSERT INTO btc.opa_decision (
                     psbt_id,
                     policy_name,
                     actor,
