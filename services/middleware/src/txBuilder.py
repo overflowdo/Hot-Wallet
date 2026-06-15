@@ -15,7 +15,7 @@ async def handle_psbt_failed(psbt: dict):
             "source_address": psbt.get("source_address"),
             "target_address": psbt.get("target_address"),
             "meta": {},
-            "error_code": psbt.get("error_code"),
+            "error_code": psbt.get("error_code")
         }
     )
 
@@ -32,7 +32,7 @@ async def handle_psbt_created(psbt: dict):
             "source_address": psbt.get("source_address"),
             "target_address": psbt.get("target_address"),
             "meta": {},
-            "error_code": psbt.get("error_code"),
+            "error_code": psbt.get("error_code")
         }
     )
 

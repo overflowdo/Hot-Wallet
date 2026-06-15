@@ -5,12 +5,22 @@ import asyncio
 import hashlib
 import json
 import httpx
+from datetime import datetime, timezone
 
 from .db import insert_psbt, upsert_psbt_artifact
-from .main import utc_now_iso
 
 SIGNER_URL = os.getenv("SIGNER_URL")
 SIGNER_HMAC_SECRET = os.getenv("SIGNER_HMAC_SECRET")
+
+
+#Hilfsfunktion für API communication zur Signer VM
+def utc_now_iso() -> str:
+    return (
+        datetime.now(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
 
 async def sign_psbt(psbt: dict) -> dict:
         #Weiterleitung zu Sign Funktion

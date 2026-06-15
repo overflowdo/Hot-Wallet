@@ -7,12 +7,12 @@ from .db import insert_psbt, psbt_created_seen, insert_opa_decision
 OPA_URL = os.getenv("OPA_URL", "http://opa:8181")
 
 
-async def evaluate_hot_intent(self, intent: dict) -> dict:
-    payload = {"input": self.to_opa_input(intent)}
+async def evaluate_hot_intent(intent: dict) -> dict:
+    payload = {"input": to_opa_input(intent)}
 
     async with httpx.AsyncClient(timeout=3.0) as client:
         resp = await client.post(
-            f"{self.base}/v1/data/policy/hot/decision",
+            f"{OPA_URL}/v1/data/policy/hot/decision",
             json=payload,
         )
         resp.raise_for_status()
@@ -48,11 +48,11 @@ def to_opa_input(intent: dict) -> dict:
     }
     
 
-async def handle_intent(psbt: dict):
+async def handle_intent(psbt: dict)-> bool:
 
     #Deduplication of Tx because of race conditions check
     if await asyncio.to_thread(psbt_created_seen, psbt.get("id"), "INTENT_CREATED"):
-        return
+        return False
 
     if psbt.get("type") == "refill":
         psbt["source_address"] = "cold"
@@ -104,7 +104,7 @@ async def handle_intent(psbt: dict):
                     "error_code": psbt.get("error_code") or reasons,
                 }
             )
-            return
+            return False
 
         await asyncio.to_thread(
             insert_psbt, {
@@ -118,3 +118,4 @@ async def handle_intent(psbt: dict):
                 "error_code": psbt.get("error_code"),
             }
         )
+    return True

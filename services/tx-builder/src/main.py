@@ -123,7 +123,8 @@ async def handle_intent_build(msg):
                 await nc.publish(
                 "psbt.failed",
                 json.dumps({
-                    "psbt_id": intent.get("id"),
+                    "id": intent.get("id"),
+                    "type": intent.get("type"),
                     "network": intent.get("network"),
                     "amount_sats": intent.get("amount_sats"),
                     "target_address": intent.get("target_address"),
@@ -153,7 +154,8 @@ async def handle_intent_build(msg):
             await nc.publish(
                 "psbt.created",
                 json.dumps({
-                    "psbt_id": intent.get("id"),
+                    "id": intent.get("id"),
+                    "type": intent.get("type"),
                     "network": intent.get("network"),
                     "amount_sats": intent.get("amount_sats"),
                     "target_address": intent.get("target_address"),
@@ -171,7 +173,8 @@ async def handle_intent_build(msg):
             await nc.publish(
                 "psbt.failed",
                 json.dumps({
-                    "psbt_id": intent.get("id"),
+                    "id": intent.get("id"),
+                    "type": intent.get("type"),
                     "network": intent.get("network"),
                     "amount_sats": intent.get("amount_sats"),
                     "target_address": intent.get("target_address"),

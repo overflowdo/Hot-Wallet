@@ -1,6 +1,5 @@
 import os
 import json
-from datetime import datetime, timezone
 from fastapi import Body, FastAPI, HTTPException
 import asyncio
 from embit.psbt import PSBT
@@ -29,14 +28,7 @@ BITCOIN_NETWORK = os.getenv("BITCOIN_NETWORK", "regtest")
 POLICY_SIGNER_URL = os.getenv("POLICY_SIGNER_URL", "http://policy-signer:8080")
 
 
-#Hilfsfunktion für DB insert
-def utc_now_iso() -> str:
-    return (
-        datetime.now(timezone.utc)
-        .replace(microsecond=0)
-        .isoformat()
-        .replace("+00:00", "Z")
-    )
+
 
 #######################################################################
 # API Endpoints (per FastAPI, wenn es kein event ist sondern direkt abfrage (anders als NATS))
@@ -129,13 +121,7 @@ async def apply_tx(body: dict):
 
 #Entfernen? kann sparrow für cold finalizen?
 def extract_rawtx_hex_from_final_psbt(psbt_bytes: bytes) -> str:
-    """
-    Extract raw tx hex from a FINALIZED PSBT using embit.
-
-    NOTE:
-    - This expects Sparrow already combined+finalized the PSBT.
-    - embit API varies; we use a conservative fallback strategy.
-    """
+    #Extract raw tx hex from a FINALIZED PSBT using embit.
     psbt = PSBT.parse(psbt_bytes)
 
     # Try finalize (idempotent when already finalized)
@@ -173,41 +159,25 @@ async def startup():
     nc = NATS()
     await nc.connect(servers=[os.getenv("NATS_URL")])
 
-    #Initial
-    await nc.subscribe(
-        "intent.created",
-        cb=intent_created_handler
-    )
-
-    #Nach TX-Builder
-    await nc.subscribe(
-        "psbt.created",
-        cb=psbt_created_handler
-    )
-
-    await nc.subscribe(
-        "psbt.failed",
-        cb=psbt_failed_handler
-    )
-
-
+    
     #Init
     #Weiterleitung zu OPA
     async def intent_created_handler(msg):
         psbt = json.loads(msg.data.decode())
-        await handle_intent(psbt)
 
-        await nc.publish(
-            "psbt.build.requested",
-            json.dumps({
-                "id": psbt.get("id"),
-                "network": psbt.get("network"),
-                "amount_sats": psbt.get("amount_sats"),
-                "target_address": psbt.get("target_address"),
-                "meta": psbt.get("meta", {}),
-                "sent_at": utc_now_iso()
-            }).encode()
-        )
+        if await handle_intent(psbt):
+            
+            await nc.publish(
+                "psbt.build.requested",
+                json.dumps({
+                    "id": psbt.get("id"),
+                    "type": psbt.get("type"),
+                    "network": psbt.get("network"),
+                    "amount_sats": psbt.get("amount_sats"),
+                    "target_address": psbt.get("target_address"),
+                    "meta": psbt.get("meta", {})
+                }).encode()
+            )
 
 
     #Nach TX-Builder
@@ -242,3 +212,21 @@ async def startup():
         elif psbt.set("state") == "refill":
             #Notify Human via ntfy for start of manual proess
             return
+        
+
+    #Initial
+    await nc.subscribe(
+        "intent.created",
+        cb=intent_created_handler
+    )
+
+    #Nach TX-Builder
+    await nc.subscribe(
+        "psbt.created",
+        cb=psbt_created_handler
+    )
+
+    await nc.subscribe(
+        "psbt.failed",
+        cb=psbt_failed_handler
+    )

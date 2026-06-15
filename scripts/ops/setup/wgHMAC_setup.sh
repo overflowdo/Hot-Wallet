@@ -22,23 +22,34 @@ patch_metadata() {
   local wallet_dir="$3"
 
   local xpub_file="$wallet_dir/xpub.txt"
+  local cold_signer_file="$wallet_dir/cold-signer.wsh"
 
   if [[ ! -f "$xpub_file" ]]; then
-    echo "ERROR: missing xpub.txt in $wallet_dir" >&2
+    echo "ERROR: missing xpub.txt or cold-signer.wsh in $wallet_dir" >&2
     return 1
   fi
 
   local xpub
-  xpub=$(cat "$xpub_file")
+  if [[ -f "$xpub_file" ]]; then
+    xpub=$(cat "$xpub_file")
+  fi
+
+  local descriptor=""
+  #cold signer descriptor
+  if [[ -f "$cold_signer_file" ]]; then
+    descriptor=$(cat "$cold_signer_file")
+  fi
 
   tmp=$(mktemp)
 
   jq \
     --arg wallet_type "$wallet_type" \
     --arg xpub "$xpub" \
+    --arg descriptor "$descriptor" \
     '
     .wallet_type = ($wallet_type)
-    | .xpub = ($xpub)
+    | .xpub = (if $xpub == "" then null else $xpub end)
+    | .descriptor = (if $descriptor == "" then null else $descriptor end)
     ' "$meta_file" > "$tmp"
 
   mv "$tmp" "$meta_file"
