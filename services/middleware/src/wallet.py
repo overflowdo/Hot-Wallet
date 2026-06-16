@@ -56,6 +56,7 @@ def extract_rawtx_hex_from_final_psbt(psbt_bytes: bytes) -> str:
 
     raise ValueError("cannot extract raw tx (psbt not finalized or unsupported embit version)")
 
+
 async def expand_watch_scripts(wallet_id: str):
     wallet = await asyncio.to_thread(get_wallet, wallet_id)
 

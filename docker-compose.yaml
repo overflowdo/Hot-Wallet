@@ -102,7 +102,8 @@ services:
       BITCOIND_RPC_URL: http://bitcoind:18443
       BITCOIND_RPC_USER: user
       BITCOIND_RPC_PASS: pass
-    Command: [listener.py]
+    volumes:
+      - ./services/zmq-listener/app:/app:ro
 
 
 volumes:
