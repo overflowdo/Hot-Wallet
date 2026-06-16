@@ -6,7 +6,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-import asyncio
 from fastapi import FastAPI, HTTPException
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 from fastapi.responses import Response
@@ -28,6 +27,8 @@ NATS_URL = os.getenv("NATS_URL", "nats://nats:4222")
 
 BITCOIN_NETWORK = os.getenv("BITCOIN_NETWORK", "regtest")
 WORK_ROOT = os.getenv("WORK_ROOT", "/var/lib/btc-work/psbt-work")
+
+MIDDLEWARE_URL= os.getenv("MIDDLEWARE_URL","http://middleware:8080")
 
 # Fee estimation config
 FEE_TARGET_BLOCKS = int(os.getenv("FEE_TARGET_BLOCKS", "6"))
@@ -158,11 +159,12 @@ async def handle_intent_build(msg):
                     "type": intent.get("type"),
                     "network": intent.get("network"),
                     "amount_sats": intent.get("amount_sats"),
+                    "source_address": intent.get("source_address"),
                     "target_address": intent.get("target_address"),
                     "psbt_path": str(Path(WORK_ROOT) / intent.get("id") / "unappr.psbt"),
                     "psbt_ref": f"psbt-work/{intent.get("id")}/unappr.psbt",
                     "sha256": sha256(psbt_bytes),
-                    "meta": result.get("meta", {}),
+                    "meta": intent.get("meta", {}),
                     "created_utc": utc_now_iso()
                 }).encode()
             )
@@ -177,6 +179,7 @@ async def handle_intent_build(msg):
                     "type": intent.get("type"),
                     "network": intent.get("network"),
                     "amount_sats": intent.get("amount_sats"),
+                    "source_address": intent.get("source_address"),
                     "target_address": intent.get("target_address"),
                     "context": {"message": str(e)},
                     "meta": intent.get("meta", {}),
@@ -186,13 +189,16 @@ async def handle_intent_build(msg):
 
 #API call to middleware for UTXOs
 async def fetch_utxos(wallet: str):
-    async with httpx.AsyncClient(timeout=10.0) as c:
-        r = await c.get(
-            "http://middleware:8080/api/v1/utxo/spendable",
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        r = await client.get(
+            f"{MIDDLEWARE_URL}/api/v1/utxo/spendable",
             params={"wallet_id": wallet}
         )
+
         r.raise_for_status()
-        return r.json()["utxos"]
+        data = r.json()
+
+        return data["utxos"]
     
 #Hilfsfunktion fee
 def estimate_fee_and_vbytes(n_in: int, n_out: int, sat_vb: int):
@@ -216,7 +222,7 @@ async def build_psbt_for_intent(intent: dict) -> PsbtResult:
         change_script = COLD_CHANGE_SCRIPT_HEX
         wallet = "cold"
         
-    elif intent.get("type") == "hot_tx":
+    elif intent.get("type") == "hot-tx":
         output_script = intent.get("target_address")
         change_script = HOT_DEPOSIT_SCRIPT_HEX
         wallet = "hot"

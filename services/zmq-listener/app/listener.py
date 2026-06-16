@@ -1,101 +1,206 @@
 import os
 import json
-import time
-import uuid
 import asyncio
+import logging
 import zmq
-from nats.aio.client import Client as NATS
+import zmq.asyncio
+import httpx
+import nats
 
-from bitcoin.core import CTransaction
-
-ZMQ_ENDPOINT = os.getenv("ZMQ_ENDPOINT")
-NATS_URL = os.getenv("NATS_URL")
-WHITELIST_PATH = os.getenv("WHITELIST_PATH")
-
+from embit.transaction import Transaction
+from embit.block import Block
 
 
-# LOAD WHITELIST
-def load_whitelist():
-    try:
-        with open(WHITELIST_PATH, "r") as f:
-            return set(json.load(f)["allowed_addresses"])
-    except Exception as e:
-        print("[warn] whitelist load failed:", e)
-        return set()
+# ENV
+ZMQ_ENDPOINT = os.getenv("ZMQ_ENDPOINT", "tcp://bitcoind:28332")
+RPC_URL = os.getenv("RPC_URL", "http://bitcoind:18443")
+RPC_USER = os.getenv("RPC_USER")
+RPC_PASSWORD = os.getenv("RPC_PASSWORD")
+
+MIDDLEWARE_URL = os.getenv("MIDDLEWARE_URL", "http://middleware:8080")
+NATS_URL = os.getenv("NATS_URL", "nats://nats:4222")
+
+NETWORK = os.getenv("BITCOIN_NETWORK", "regtest")
+
+log = logging.getLogger("btc-indexer")
 
 
+#HTTP CLIENT
+http = httpx.AsyncClient(timeout=10.0)
 
-# DECODE TX
-def decode_tx(raw):
-    tx = CTransaction.deserialize(raw)
+# NATS
+nc = None
+async def publish(subject: str, msg: dict):
+    global nc
+    if nc:
+        await nc.publish(subject, json.dumps(msg).encode())
 
-    outputs = []
-    for vout in tx.vout:
-        try:
-            addr = str(vout.scriptPubKey.addresses[0])
-            outputs.append((addr, vout.nValue))
-        except Exception:
+WATCH_MAP = {}
+
+# WATCH CACHE
+async def load_watch_map():
+    r = await http.get(f"{MIDDLEWARE_URL}/api/v1/watch-scripts")
+    global WATCH_MAP
+
+    r.raise_for_status()
+    data = r.json()
+
+    WATCH_MAP = data["watch_map"]
+
+
+async def fetch_height():
+    r = await http.get(f"{MIDDLEWARE_URL}/api/v1/block/height")
+    r.raise_for_status()
+    return r.json()["height"]
+
+
+#TX processor (MEMPOOL)
+async def process_tx(tx: Transaction):
+    txid = tx.txid.hex()
+
+    # inputs → spent
+    for vin in tx.vin:
+        if vin.prevout is None:
             continue
 
-    return outputs
+        await publish("btc.utxo.spent", {
+            "txid": vin.prevout.hash.hex(),
+            "vout": vin.prevout.n,
+            "spent_by": txid,
+            "network": NETWORK
+        })
+
+    # outputs → created
+    for i, vout in enumerate(tx.vout):
+        script_hex = vout.script_pubkey.serialize().hex()
+
+        wallet_id = WATCH_MAP.get(script_hex)
+        if not wallet_id:
+            continue
+
+        await publish("btc.utxo.created", {
+            "txid": txid,
+            "vout": i,
+            "wallet_id": wallet_id,
+            "amount_sats": int(vout.value),
+            "script_pubkey": script_hex,
+            "confirmed": False,
+            "network": NETWORK
+        })
 
 
 
-# BUILD EVENT
-def build_event(addr, value, txid):
-    return {
-        "id": str(uuid.uuid4()),
-        "type": "hot-tx",
-        "amount_sats": int(value),
-        "target_address": addr,
-        "network": "regtest",
-        "meta": {
-            "source": "zmq",
-            "txid": txid
-        }
-    }
+#block processor
+async def process_block(block: Block):
+    block_hash = block.hash().hex()
+
+    height = await fetch_height()
+    
+    for tx in block.vtx:
+        txid = tx.txid.hex()
+
+        # spent inputs
+        for vin in tx.vin:
+            if vin.prevout is None:
+                continue
+
+            await publish("btc.utxo.spent", {
+                "txid": vin.prevout.hash.hex(),
+                "vout": vin.prevout.n,
+                "spent_by": txid,
+                "block_hash": block_hash,
+                "block_height": height,
+                "network": NETWORK
+            })
+
+        # outputs
+        for i, vout in enumerate(tx.vout):
+            script_hex = vout.script_pubkey.data.hex()
+
+            wallet_id = WATCH_MAP.get(script_hex)
+            if not wallet_id:
+                continue
+
+            await publish("btc.utxo.created", {
+                "txid": txid,
+                "vout": i,
+                "wallet_id": wallet_id,
+                "amount_sats": int(vout.value),
+                "script_pubkey": script_hex,
+                "confirmed": True,
+                "block_hash": block_hash,
+                "block_height": height,
+                "network": NETWORK
+            })
+
+    await publish("btc.block.connected", {
+        "hash": block_hash,
+        "height": height,
+        "network": NETWORK
+    })
 
 
 
-# MAIN
-async def main():
-    whitelist = load_whitelist()
+#ZMQ loop
+async def zmq_loop():
+    ctx = zmq.asyncio.Context()
+    sock = ctx.socket(zmq.SUB)
 
-    print("[listener] whitelist:", len(whitelist))
+    sock.connect(ZMQ_ENDPOINT)
 
-    # NATS connect
-    nc = NATS()
-    await nc.connect(servers=[NATS_URL])
-    print("[listener] connected to NATS")
+    sock.setsockopt(zmq.SUBSCRIBE, b"rawtx")
+    sock.setsockopt(zmq.SUBSCRIBE, b"rawblock")
 
-    # ZMQ connect
-    ctx = zmq.Context()
-    socket = ctx.socket(zmq.SUB)
-    socket.connect(ZMQ_ENDPOINT)
-    socket.setsockopt(zmq.SUBSCRIBE, b"")
-
-    print("[listener] connected to ZMQ")
+    log.info("ZMQ connected")
 
     while True:
+        topic, data = await sock.recv_multipart()
+
         try:
-            raw = await asyncio.to_thread(socket.recv)
-            outputs = decode_tx(raw)
+            if topic == b"rawtx":
+                tx = Transaction.parse(data)
+                await process_tx(tx)
 
-            for addr, value in outputs:
-                if addr in whitelist:
-
-                    event = build_event(addr, value, "unknown")
-
-                    await nc.publish(
-                        "intent.created",
-                        json.dumps(event).encode()
-                    )
-
-                    print("[EVENT] intent.created ->", addr, value)
+            elif topic == b"rawblock":
+                block = Block.parse(data)
+                await process_block(block)
 
         except Exception as e:
-            print("[error]", e)
-            time.sleep(1)
+            log.error("processing error: %s", str(e))
+
+
+#nats subscribe control panel
+async def control_loop():
+    async def handler(msg):
+        subject = msg.subject
+        data = json.loads(msg.data.decode())
+
+        log.info("control event: %s", subject)
+
+        if subject == "btc.control.reload_watchmap":
+            await load_watch_map()
+            log.info("watchmap reloaded")
+
+    await nc.subscribe("btc.control.*", cb=handler)
+
+
+async def main():
+    global nc
+
+    logging.basicConfig(level=logging.INFO)
+
+    # NATS connect
+    nc = await nats.connect(NATS_URL)
+    log.info("NATS connected")
+
+    # load initial state
+    await load_watch_map()
+
+    # optional control plane
+    await control_loop()
+
+    # run indexer
+    await zmq_loop()
 
 
 if __name__ == "__main__":

@@ -10,13 +10,12 @@ services:
 
       DATABASE_URL: postgresql://user:pass@postgres:5432/btc
 
+      MIDDLEWARE_URL: http://middleware:8080
+
       BITCOIN_NETWORK: regtest
       HOT_DEPOSIT_SCRIPT_HEX: "0014aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
       COLD_CHANGE_SCRIPT_HEX: "0014bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 
-      BITCOIND_RPC_URL: http://bitcoind:18443
-      BITCOIND_RPC_USER: user
-      BITCOIND_RPC_PASS: pass
     volumes:
       - tx_builder_data:/var/lib/tx-builder
     depends_on:
@@ -29,6 +28,11 @@ services:
     container_name: middleware
     environment:
       SERVICE_NAME: middleware
+
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass
+      POSTGRES_DB: btc
+
       NATS_URL: nats://nats:4222
       OPA_URL: http://opa:8181
       SIGNER_URL: http://10.50.0.1:8080
@@ -86,16 +90,20 @@ services:
     - ./services/postgres/001_psbt.sql:/docker-entrypoint-initdb.d/001_psbt.sql:ro
     - ./services/postgres/002_wallet.sql:/docker-entrypoint-initdb.d/002_wallet.sql:ro
 
-# listener:
-#   build: ./services/zmq-listener
-#   container_name: btc-zmq-listener
-#   restart: unless-stopped
-#   environment:
- #    ZMQ_ENDPOINT: "tcp://10.50.0.10:28332"
-#     WHITELIST_PATH: "/data/whitelist.json"
-#     NATS_URL: "nats://nats:4222"
-#   volumes:
-#     - ./data:/data
+  listener:
+    build: ./services/zmq-listener
+    container_name: btc-zmq-listener
+    restart: unless-stopped
+    environment:
+      ZMQ_ENDPOINT: "tcp://10.50.0.10:28332"
+      MIDDLEWARE_URL: http://middleware:8080
+      NATS_URL: nats://nats:4222
+
+      BITCOIND_RPC_URL: http://bitcoind:18443
+      BITCOIND_RPC_USER: user
+      BITCOIND_RPC_PASS: pass
+    Command: [listener.py]
+
 
 volumes:
   tx_builder_data:

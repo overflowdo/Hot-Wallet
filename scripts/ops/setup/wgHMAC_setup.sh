@@ -22,10 +22,9 @@ patch_metadata() {
   local wallet_dir="$3"
 
   local xpub_file="$wallet_dir/xpub.txt"
-  local cold_signer_file="$wallet_dir/cold-signer.wsh"
 
   if [[ ! -f "$xpub_file" ]]; then
-    echo "ERROR: missing xpub.txt or cold-signer.wsh in $wallet_dir" >&2
+    echo "ERROR: missing xpub.txt in $wallet_dir" >&2
     return 1
   fi
 
@@ -34,22 +33,16 @@ patch_metadata() {
     xpub=$(cat "$xpub_file")
   fi
 
-  local descriptor=""
-  #cold signer descriptor
-  if [[ -f "$cold_signer_file" ]]; then
-    descriptor=$(cat "$cold_signer_file")
-  fi
 
+  local tmp
   tmp=$(mktemp)
 
   jq \
     --arg wallet_type "$wallet_type" \
     --arg xpub "$xpub" \
-    --arg descriptor "$descriptor" \
     '
     .wallet_type = ($wallet_type)
     | .xpub = (if $xpub == "" then null else $xpub end)
-    | .descriptor = (if $descriptor == "" then null else $descriptor end)
     ' "$meta_file" > "$tmp"
 
   mv "$tmp" "$meta_file"
@@ -120,14 +113,42 @@ do
 
     WALLET_META="$WALLET_TYPE_DIR/metadata.json"
 
-    if [[ ! -f "$WALLET_META" ]]; then
-        echo "Skipping $WALLET_TYPE (no metadata.json)"
-        continue
+    if [[ "$WALLET_TYPE" == "hot" ]]; then
+
+        if [[ ! -f "$WALLET_META" ]]; then
+            echo "Skipping hot (no metadata.json)"
+            continue
+        fi
+
+        FOUND=1
+
+        patch_metadata "$WALLET_META" "$WALLET_TYPE" "$WALLET_TYPE_DIR"
+
+    elif [[ "$WALLET_TYPE" == "cold" ]]; then
+
+        COLD_SIGNER="$WALLET_TYPE_DIR/cold-signer.wsh"
+
+        if [[ ! -f "$COLD_SIGNER" ]]; then
+            echo "Skipping cold (no cold-signer.wsh)"
+            continue
+        fi
+
+        FOUND=1
+        WALLET_META=$(mktemp)
+
+        jq -n \
+          --arg wallet_type "cold" \
+          --arg xpub "$(tail -n 1 "$COLD_SIGNER")" \
+          --arg network "regtest" \
+          '
+          {
+            wallet_type: $wallet_type,
+            xpub: $xpub,
+            network: $network,
+          }
+          ' > "$WALLET_META"
+
     fi
-
-    patch_metadata "$WALLET_META" "$WALLET_TYPE" "$WALLET_TYPE_DIR"
-
-    FOUND=1
 
     echo ""
     echo "----------------------------------"
@@ -137,7 +158,7 @@ do
     mkdir -p "$WALLET_DIR/$WALLET_TYPE"
 
     cp "$WALLET_TYPE_DIR/"* "$WALLET_DIR/$WALLET_TYPE/"
-    chmod 644 "$WALLET_DIR/$WALLET_TYPE"/*
+    find "$WALLET_DIR/$WALLET_TYPE" -type f -exec chmod 644 {} \;
     
     if curl \
       --fail \

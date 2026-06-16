@@ -1,6 +1,3 @@
--- Schema: btc
--- Target: PostgreSQL >= 13
-
 BEGIN;
 
 CREATE SCHEMA IF NOT EXISTS btc;
@@ -34,6 +31,7 @@ CREATE TABLE IF NOT EXISTS btc.wallet (
     master_fingerprint TEXT,
 
     active           BOOLEAN NOT NULL DEFAULT true,
+    next_scan_index  INTEGER DEFAULT 0, 
 
     created_utc      TIMESTAMPTZ NOT NULL DEFAULT now()
 );

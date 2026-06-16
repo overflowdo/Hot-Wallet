@@ -2,17 +2,27 @@ import os
 import json
 from fastapi import Body, FastAPI, HTTPException
 import asyncio
-from embit.psbt import PSBT
 from nats.aio.client import Client as NATS
+
 
 from .opa import handle_intent
 from .broadcast import broadcast_to_bitcoind
 from .signer import sign_psbt
 from .txBuilder import handle_psbt_created, handle_psbt_failed
+from .wallet import derive_p2wpkh_scripts, expand_watch_scripts
 from .db import (
     create_wallet,
-    get_spendable_utxos,
-    update_spendable_utxos,
+    mark_utxo_spent,
+    db_get_watchScripts,
+    get_utxos,
+    db_get_watchScripts,
+    insert_utxo,
+    rollback_block,
+    set_tip,
+    get_tip,
+    get_block,
+    upsert_block,
+    update_wallet_usage
 )
 
 
@@ -71,9 +81,18 @@ async def add_wallet(metadata: dict = Body(...)):
         metadata.get("master_fingerprint", "")
     )
 
+    #WatcScript mit dynamic gap/limit
+    await expand_watch_scripts(wallet_id)
+
+    #reload trigger für zmq
+    await nc.publish(
+        "btc.control.reload_watchmap",
+        json.dumps({"wallet_id": wallet_id}).encode()
+    )
+
     return {
         "success": True,
-        "wallet_id": wallet_id
+        "wallet_id": wallet_id,
     }
     
 
@@ -83,71 +102,51 @@ async def add_wallet(metadata: dict = Body(...)):
 @app.get("/api/v1/utxo/spendable")
 async def get_utxos(wallet_id: str):
     rows = await asyncio.to_thread(
-        get_spendable_utxos,
+        get_utxos,
         wallet_id
     )
 
+    # optional: filter + normalize for tx-builder
+    utxos = [
+        {
+            "txid": r["txid"],
+            "vout": r["vout"],
+            "amount_sats": r["amount_sats"],
+            "script_pubkey": r["script_pubkey"],
+            "confirmed": r["confirmed"]
+        }
+        for r in rows
+        if not r.get("spent", False)
+    ]
+
     return {
         "wallet_id": wallet_id,
-        "utxos": rows
+        "utxos": utxos
     }
 
 
-#Kann weg?
-@app.post("/api/v1/utxo/apply-tx")
-async def apply_tx(body: dict):
-    """
-    body:
-    {
-        "txid": "...",
-        "inputs": [{"txid": "...", "vout": 0}],
-        "outputs": [
-            {"script": "...", "value": 12345}
-        ],
-        "height": 0
+#genutzt von ZMQ-listener
+@app.get("/api/v1/watch-scripts")
+async def get_watchScripts(wallet_id: str):
+    rows = await asyncio.to_thread(
+        db_get_watchScripts
+    )
+
+    return {
+        "watch_scripts": {
+            r["script_pubkey_hex"]: r["wallet_id"]
+            for r in rows
+        }
     }
-    """
-
-    txid = body["txid"]
-    inputs = body["inputs"]
-    outputs = body["outputs"]
-    height = body.get("height", 0)
-
-    await asyncio.to_thread(update_spendable_utxos, txid, inputs, outputs, height)
-
-    return {"ok": True}
-########################################################################
 
 
-#Entfernen? kann sparrow für cold finalizen?
-def extract_rawtx_hex_from_final_psbt(psbt_bytes: bytes) -> str:
-    #Extract raw tx hex from a FINALIZED PSBT using embit.
-    psbt = PSBT.parse(psbt_bytes)
-
-    # Try finalize (idempotent when already finalized)
-    try:
-        psbt.finalize()
-    except Exception:
-        pass
-
-    # Some embit versions provide extraction helpers.
-    for name in ("extract_tx", "final_tx", "extract_transaction", "finalize_tx"):
-        fn = getattr(psbt, name, None)
-        if callable(fn):
-            tx = fn()
-            if hasattr(tx, "serialize"):
-                return tx.serialize().hex()
-            if isinstance(tx, (bytes, bytearray)):
-                return bytes(tx).hex()
-
-    # Fallback: serialize tx object directly
-    tx = getattr(psbt, "tx", None)
-    if tx is not None and hasattr(tx, "serialize"):
-        raw_hex = tx.serialize().hex()
-        if len(raw_hex) >= 20:
-            return raw_hex
-
-    raise ValueError("cannot extract raw tx (psbt not finalized or unsupported embit version)")
+@app.get("/api/v1/block/height")
+async def get_height():
+    r = await asyncio.to_thread(get_tip)
+    return {
+        "height": r["height"],
+        "hash": r["hash"]
+    }
 
 
 ############################################################################
@@ -198,7 +197,7 @@ async def startup():
         #Weiterleitung zum Signer
         signed = await sign_psbt()
 
-        if psbt.set("state") == "hot-tx":
+        if psbt.get("state") == "hot-tx":
             rawtx_hex = signed.get("rawtx_hex")
 
             if not rawtx_hex:
@@ -230,3 +229,109 @@ async def startup():
         "psbt.failed",
         cb=psbt_failed_handler
     )
+
+
+    #Dauerhaft UTXO listening durch ZMQ-listener
+    def handle_utxo_created(msg: dict):
+        wallet_id = msg["wallet_id"]
+        script = msg["script_pubkey"]
+        insert_utxo(
+            txid=msg["txid"],
+            vout=msg["vout"],
+            wallet_id=msg["wallet_id"],
+            amount_sats=msg["amount_sats"],
+            script_pubkey=msg["script_pubkey"],
+            confirmed=msg.get("confirmed", False),
+            block_height=msg.get("block_height"),
+            block_hash=msg.get("block_hash")
+        )
+
+        update_wallet_usage(wallet_id, msg.get("index", 0))
+
+        expand_watch_scripts(wallet_id)
+
+    def handle_utxo_spent(msg: dict):
+        mark_utxo_spent(
+            txid=msg["txid"],
+            vout=msg["vout"],
+            spent_txid=msg["spent_by"],
+            block_height=msg.get("block_height")
+        )
+
+    def handle_block_connected(msg):
+        data = json.loads(msg.data.decode())
+
+        height = data.get("height")
+        hash_ = data.get("hash")
+        prev = data.get("previous_hash")
+
+        tip = get_tip()
+
+        # A: normal extension
+        if tip and height == tip["height"] + 1:
+            upsert_block(height, hash_, prev)
+            set_tip(height, hash_)
+            return
+
+
+        #B: REORG DETECTED
+        print("[REORG DETECTED]")
+
+        # find fork point
+        fork_height = tip["height"]
+
+        while fork_height > 0:
+            b = get_block(fork_height)
+
+            if not b:
+                fork_height -= 1
+                continue
+
+            # naive check: break where hashes differ
+            if b["hash"] == prev:
+                break
+
+            rollback_block(fork_height)
+            fork_height -= 1
+
+        # move tip back
+        set_tip(fork_height, prev)
+
+    def handle_block_disconnected(msg):
+        data = json.loads(msg.data.decode())
+        height = data["height"]
+
+        print("[BLOCK DISCONNECTED]", height)
+
+        rollback_block(height)
+
+        
+
+    await nc.subscribe(
+        "btc.utxo.created",
+        cb=handle_utxo_created
+    )
+
+    await nc.subscribe(
+        "btc.utxo.spent",
+        cb=handle_utxo_spent
+    )
+
+    await nc.subscribe(
+        "btc.block.connected",
+        cb=handle_block_connected
+    )
+
+    await nc.subscribe(
+        "btc.block.disconnected",
+        cb=handle_block_disconnected
+    )
+
+    await nc.subscribe(
+        "btc.wallet.expand.requested",
+        cb=lambda msg: asyncio.create_task(
+            expand_watch_scripts(json.loads(msg.data.decode())["wallet_id"])
+        )
+    )
+
+    
