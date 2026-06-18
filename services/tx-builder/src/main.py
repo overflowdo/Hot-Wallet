@@ -5,20 +5,21 @@ import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+import hashlib
+from dataclasses import dataclass, field
 
 from fastapi import FastAPI, HTTPException
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 from fastapi.responses import Response
 from nats.aio.client import Client as NATS
-import httpx
+
 
 from .logging_setup import setup_logging
 from .metrics import INTENTS_TOTAL, UTXO_UNSPENT_GAUGE, PSBT_BUILT_TOTAL
-from .bitcoind import estimate_sat_per_vb
+from .bitcoind import estimate_sat_per_vb, fetch_utxos
 from .coinselect import select_utxos, estimate_vbytes
 from .psbt_builder import build_psbt
-import hashlib
-from dataclasses import dataclass, field
+
 
 app = FastAPI()
 
@@ -187,19 +188,7 @@ async def handle_intent_build(msg):
                 }).encode()
             )
 
-#API call to middleware for UTXOs
-async def fetch_utxos(wallet: str):
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        r = await client.get(
-            f"{MIDDLEWARE_URL}/api/v1/utxo/spendable",
-            params={"wallet_id": wallet}
-        )
-
-        r.raise_for_status()
-        data = r.json()
-
-        return data["utxos"]
-    
+  
 #Hilfsfunktion fee
 def estimate_fee_and_vbytes(n_in: int, n_out: int, sat_vb: int):
     vbytes = estimate_vbytes(n_in, n_out, VIN_VB_P2WSH, VOUT_VB)
@@ -243,7 +232,7 @@ async def build_psbt_for_intent(intent: dict) -> PsbtResult:
 
     # 1. initial coin selection (no fee)
 
-    utxos = await fetch_utxos(wallet)
+    utxos = await fetch_utxos(intent.get("descriptors"))
     if not utxos:
         log.warning("no_utxos_available", extra={"intent_id": intent_id})
         return PsbtResult(

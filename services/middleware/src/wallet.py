@@ -1,30 +1,29 @@
+import os
+import asyncio
+import subprocess
+import json
+import httpx
 from embit.psbt import PSBT
 from embit import bip32
 from embit.script import p2wpkh
-import asyncio
 
 from .db import (
     get_wallet,
     insert_watchScript,
-    update_wallet_usage
+    update_wallet_usage,
+    db_get_watchScripts,
+    get_utxos,
+    del_utxos,
+    ins_utxo,
+    db_rollback,
+    get_wallet_ids,
+    update_nextScan_index
 )
 
-def derive_p2wpkh_scripts(xpub: str, derivation_path: str, start: int, end: int):
-    node = bip32.HDKey.from_string(xpub)
+SPARROW_CLI_PATH = os.getenv("SPARROW_CLI_PATH", "sparrow-cli")
+WALLETS_DIR = os.getenv("WALLETS_DIR", "")
 
-    scripts = []
 
-    for i in range(start, end + 1):
-        child = node.derive(f"{derivation_path}/{i}")
-        pubkey = child.public_key
-        script = p2wpkh(pubkey)
-
-        scripts.append({
-            "index": i,
-            "script_hex": script.data.hex()
-        })
-
-    return scripts
 
 #Entfernen? kann sparrow für cold finalizen?
 def extract_rawtx_hex_from_final_psbt(psbt_bytes: bytes) -> str:
@@ -57,7 +56,27 @@ def extract_rawtx_hex_from_final_psbt(psbt_bytes: bytes) -> str:
     raise ValueError("cannot extract raw tx (psbt not finalized or unsupported embit version)")
 
 
-async def expand_watch_scripts(wallet_id: str):
+#Hilfsfunktion wie viele weitere wallets in die map kommen
+def derive_p2wpkh(xpub: str, derivation_path: str, start: int, end: int):
+    node = bip32.HDKey.from_string(xpub)
+
+    scripts = []
+
+    for i in range(start, end + 1):
+        child = node.derive(f"0/{i}")
+        pubkey = child.public_key
+        script = p2wpkh(pubkey)
+
+        scripts.append({
+            "index": i,
+            "script_hex": script.data.hex()
+        })
+
+    return scripts
+
+
+#Finde nächsten adressen, um wallet tx nachverfolgen zukönnen
+async def expand_watchScripts(wallet_id: str):
     wallet = await asyncio.to_thread(get_wallet, wallet_id)
 
     if not wallet:
@@ -73,21 +92,22 @@ async def expand_watch_scripts(wallet_id: str):
     start = next_scan
     end = last + gap
 
-    scripts = derive_p2wpkh_scripts(xpub, path, start, end)
+    scripts = derive_p2wpkh(xpub, path, start, end)
 
     for s in scripts:
         await asyncio.to_thread(
             insert_watchScript,
             s["script_hex"],
             wallet_id,
+            s["index"],
             "p2wpkh"
         )
 
-        # optional: track usage index
+        #track usage index
         await asyncio.to_thread(
-            update_wallet_usage,
+            update_nextScan_index,
             wallet_id,
-            s["index"]
+            end + 1
         )
 
     return {
@@ -95,3 +115,67 @@ async def expand_watch_scripts(wallet_id: str):
         "expanded": len(scripts),
         "range": [start, end]
     }
+
+
+
+
+#########################################################
+#Sparrow
+#Reorg trigger
+async def ReconWallets():
+    print("Starte automatischen UTXO-Abgleich nach Reorg...")
+    
+    #Alle watched wallets
+    rows = await asyncio.to_thread(
+        get_wallet_ids
+    )
+
+    wallet_ids = [
+        r["wallet_id"]
+        for r in rows
+    ]
+
+    for wallet_id in wallet_ids:
+        wallet_file = f"/pfad/zu/deinen/wallets/{wallet_id}.wallet"
+        
+        # Sparrow CLI aufrufen
+        cmd = ["sparrow-cli", "getutxos", "-w", wallet_file, "-f", "json"]
+        try:
+            result = await asyncio.to_thread(
+                subprocess.run, cmd, capture_output=True, text=True, check=True
+            )
+            sparrow_utxos = json.loads(result.stdout)
+            
+            #Löschen aller UTXOs dieser Wallet in der DB
+            #Nachbauen aus Sparrow-Daten auf
+            await asyncio.to_thread(rebuild_walletUtxos, wallet_id, sparrow_utxos)
+            print(f"[SPARROW AUDITOR] Wallet {wallet_id} erfolgreich nachgebaut.")
+            
+        except Exception as e:
+            print(f"[SPARROW AUDITOR] Fehler beim Abgleich von {wallet_id}: {str(e)}")
+
+
+def rebuild_walletUtxos(wallet_id: str, sparrow_utxos: list, db_connection):    
+    try:
+        #Löschen unbestätigter
+        del_utxos(wallet_id)
+        #Inserieren neuer
+
+        for utxo in sparrow_utxos:
+            ins_utxo(
+                txid=utxo["txid"],
+                vout=utxo["vout"],
+                wallet_id=wallet_id,
+                amount_sats=utxo["value"],
+                script_pubkey=utxo["script_pubkey"],
+                confirmed=True,
+                block_height=utxo.get("height"),
+                block_hash=None
+            )
+
+        print(f"[DB] Wallet {wallet_id} erfolgreich mit {len(sparrow_utxos)} UTXOs synchronisiert.")
+        
+    except Exception as e:
+        db_rollback()
+        print(f"[DB ERROR] Fehler beim Wiederaufbau der UTXOs: {str(e)}")
+        raise e

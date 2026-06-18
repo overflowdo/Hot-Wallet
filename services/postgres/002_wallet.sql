@@ -21,9 +21,11 @@ CREATE TABLE IF NOT EXISTS btc.chain_state (
 
 --Reorg Implementierung, block tracking
 CREATE TABLE IF NOT EXISTS btc.blocks (
-    height INTEGER PRIMARY KEY,
+    height BIGINT PRIMARY KEY,
     hash TEXT NOT NULL,
-    previous_hash TEXT NOT NULL
+    previous_hash TEXT,
+    network TEXT NOT NULL,
+    inserted_at TIMESTAMP DEFAULT now()
 );
 
 
@@ -33,7 +35,9 @@ CREATE TABLE IF NOT EXISTS btc.watch_script (
   wallet_id         TEXT NOT NULL REFERENCES btc.wallet(wallet_id) ON DELETE CASCADE,
   label             TEXT NOT NULL DEFAULT '',
   input_type        TEXT NOT NULL DEFAULT 'p2wsh',
-  created_utc       TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_utc       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  address_index     INTEGER DEFAULT 0,
+  is_change         BOOLEAN DEFAULT False
 );
 
 

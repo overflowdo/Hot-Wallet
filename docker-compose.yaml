@@ -90,22 +90,6 @@ services:
     - ./services/postgres/001_psbt.sql:/docker-entrypoint-initdb.d/001_psbt.sql:ro
     - ./services/postgres/002_wallet.sql:/docker-entrypoint-initdb.d/002_wallet.sql:ro
 
-  listener:
-    build: ./services/zmq-listener
-    container_name: btc-zmq-listener
-    restart: unless-stopped
-    environment:
-      ZMQ_ENDPOINT: "tcp://10.50.0.10:28332"
-      MIDDLEWARE_URL: http://middleware:8080
-      NATS_URL: nats://nats:4222
-
-      BITCOIND_RPC_URL: http://bitcoind:18443
-      BITCOIND_RPC_USER: user
-      BITCOIND_RPC_PASS: pass
-    volumes:
-      - ./services/zmq-listener/app:/app:ro
-
-
 volumes:
   tx_builder_data:
   postgres_data:
