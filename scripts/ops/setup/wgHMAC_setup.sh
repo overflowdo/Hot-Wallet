@@ -138,12 +138,13 @@ do
 
         jq -n \
           --arg wallet_type "cold" \
-          --arg xpub "$(tail -n 1 "$COLD_SIGNER")" \
+          --arg desc "$(tail -n 1 "$COLD_SIGNER")" \
           --arg network "regtest" \
           '
           {
             wallet_type: $wallet_type,
-            xpub: $xpub,
+            xpub: ""
+            descriptor: $desc,
             network: $network,
           }
           ' > "$WALLET_META"

@@ -100,9 +100,10 @@ def create_wallet(
     wallet_id: str,
     wallet_type: str,
     network: str,
-    xpub: str,
+    xpub: str | None,
     derivation_path: str | None,
-    master_fingerprint: str | None
+    master_fingerprint: str | None,
+    descriptor: str
 ):
     with conn() as c:
         with c.cursor() as cur:
@@ -115,8 +116,9 @@ def create_wallet(
                     xpub,
                     derivation_path,
                     master_fingerprint
+                    descriptor
                 )
-                VALUES (%s,%s,%s,%s,%s,%s)
+                VALUES (%s,%s,%s,%s,%s,%s,%s)
                 ON CONFLICT (wallet_id)
                 DO UPDATE SET
                     xpub = EXCLUDED.xpub,
@@ -129,7 +131,8 @@ def create_wallet(
                     network,
                     xpub,
                     derivation_path,
-                    master_fingerprint
+                    master_fingerprint,
+                    descriptor
                 )
             )
 

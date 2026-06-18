@@ -25,13 +25,14 @@ CREATE TABLE IF NOT EXISTS btc.wallet (
     wallet_type      btc.wallet_type NOT NULL,
     network          TEXT NOT NULL,
 
-    xpub             TEXT NOT NULL,
+    xpub             TEXT,
 
     derivation_path  TEXT,
     master_fingerprint TEXT,
 
     active           BOOLEAN NOT NULL DEFAULT true,
     next_scan_index  INTEGER DEFAULT 0, 
+    descriptor        TEXT NOT NULL
 
     created_utc      TIMESTAMPTZ NOT NULL DEFAULT now()
 );

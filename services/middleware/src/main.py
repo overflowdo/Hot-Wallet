@@ -62,13 +62,14 @@ async def add_wallet(metadata: dict = Body(...)):
         metadata["network"],
         metadata["xpub"],
         metadata.get("derivation_path", ""),
-        metadata.get("master_fingerprint", "")
+        metadata.get("master_fingerprint", ""),
+        metadata.get("desciptor")
     )
 
     #Export for tx-builder
     await nc.publish(
         "newWallet.registered",
-        json.dumps({"wallet_id": wallet_id, "xpub": metadata["xpub"]}).encode()
+        json.dumps({"wallet_id": wallet_id, "desc": metadata["descriptor"]}).encode()
     )
 
     return {

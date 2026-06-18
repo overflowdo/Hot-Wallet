@@ -9,12 +9,6 @@ def build_psbt(
     change_script_hex: str,
     change_sats: int
 ) -> bytes:
-    """
-    Build PSBT bytes:
-    - inputs: [{txid,vout,value_sats,script_pubkey_hex}, ...]
-    - outputs: [(script_hex, value_sats), ...]
-    - change output optional if change_sats > 0
-    """
 
     txins = []
     for u in inputs:

@@ -1,53 +1,58 @@
 import os
-import httpx
+import requests
+from typing import List, Dict, Tuple
 
-BITCOIND_RPC_URL = os.getenv("BITCOIND_RPC_URL", "").rstrip("/") + "/"
-BITCOIND_RPC_USER = os.getenv("BITCOIND_RPC_USER", "")
-BITCOIND_RPC_PASS = os.getenv("BITCOIND_RPC_PASS", "")
+BITCOIND_RPC_URL = os.getenv("BITCOIND_RPC_URL", "")
+RPC_USER = os.getenv("BITCOIND_RPC_USER", "")
+RPC_PASS = os.getenv("BITCOIND_RPC_PASS", "")
 
-HEADERS = {"content-type": "text/plain;"}
 
 class BitcoindRPCError(RuntimeError):
     pass
 
-async def rpc(method, params=None):
-    params = params or []
+def rpc_call(url, method, params=None, rpc_id="tx-builder"):
+    payload = {
+        "jsonrpc": "1.0",
+        "id": rpc_id,
+        "method": method,
+        "params": params or []
+    }
 
-    r = await httpx.post(
-        BITCOIND_RPC_URL,
-        auth=(BITCOIND_RPC_USER, BITCOIND_RPC_PASS),
-        json={
-            "jsonrpc": "1.0",
-            "id": "middleware",
-            "method": method,
-            "params": params
-        }
+    response = requests.post(
+        url,
+        auth=(RPC_USER, RPC_PASS),
+        json=payload,
+        headers={"content-type": "text/plain;"}
     )
 
-    r.raise_for_status()
-
-    body = r.json()
-
-    if body["error"]:
-        raise RuntimeError(body["error"])
-
-    return body["result"]
+    # Zuerst versuchen, die JSON-Fehlermeldung von Bitcoin Core zu lesen
+    try:
+        result = response.json()
+        if result.get("error") is not None:
+            raise RuntimeError(
+                f"RPC-Fehler bei '{method}': {result['error']}"
+            )
+        return result["result"]
+    except ValueError:
+        #error 500
+        response.raise_for_status()
+        raise
 
 
 async def get_height() -> int:
-    info = await rpc("getblockchaininfo")
+    info = rpc_call(BITCOIND_RPC_URL, "getblockchaininfo")
     return int(info["blocks"])
 
 async def get_block_hash(height: int) -> str:
-    return await rpc("getblockhash", [height])
+    return rpc_call(BITCOIND_RPC_URL,"getblockhash", [height])
 
 async def get_block_verbose2(block_hash: str) -> dict:
-    # verbosity=2 => decoded tx
-    return await rpc("getblock", [block_hash, 2])
+    #verbosity=2 => decoded tx
+    return rpc_call(BITCOIND_RPC_URL, "getblock", [block_hash, 2])
 
 async def estimate_sat_per_vb(target_blocks: int) -> int:
     try:
-        r = await rpc("estimatesmartfee", [target_blocks])
+        r = rpc_call(BITCOIND_RPC_URL, "estimatesmartfee", [target_blocks])
 
         if not r:
             return 2
@@ -55,7 +60,7 @@ async def estimate_sat_per_vb(target_blocks: int) -> int:
         feerate = r.get("feerate")
         errors = r.get("errors")
 
-        # Bitcoin Core sometimes returns estimates with warnings
+        # Bitcoin Core  returns estimates with warnings
         if feerate is None:
             return 2
 
@@ -75,10 +80,35 @@ async def estimate_sat_per_vb(target_blocks: int) -> int:
         return 2
     
 
-async def fetch_utxos(descriptors: list[str]) -> list[dict]:
-    result = await rpc(
+async def fetch_utxos(descriptors) -> list[dict]:
+
+    # In Liste von Descriptor-Strings umwandeln
+    if isinstance(descriptors, str):
+        descriptor_list = [descriptors]
+
+    elif isinstance(descriptors, dict):
+
+        if "desc" in descriptors:
+            descriptor_list = [descriptors["desc"]]
+        else:
+            descriptor_list = list(descriptors.values())
+
+    elif isinstance(descriptors, (list, tuple, set)):
+        descriptor_list = list(descriptors)
+
+    else:
+        raise TypeError(f"Unsupported descriptor type: {type(descriptors)}")
+
+    scan_objects = [
+        {"desc": desc}
+        for desc in descriptor_list
+        if desc.startswith(("wpkh(", "pkh(", "sh(", "wsh(", "tr(", "addr("))
+    ]
+
+    result = rpc_call(
+        BITCOIND_RPC_URL,
         "scantxoutset",
-        ["start", descriptors]
+        ["start", scan_objects]
     )
 
     unspents = result.get("unspents", [])
@@ -99,3 +129,16 @@ async def fetch_utxos(descriptors: list[str]) -> list[dict]:
         })
 
     return utxos
+
+def estimate_vbytes(n_in: int, n_out: int, vin_vb: int, vout_vb: int, base_vb: int = 10) -> int:
+    return base_vb + n_in * vin_vb + n_out * vout_vb
+
+def select_utxos(utxos: List[Dict], target_sats: int) -> Tuple[List[Dict], int]:
+    chosen = []
+    total = 0
+    for u in utxos:
+        chosen.append(u)
+        total += int(u["amount_sats"])
+        if total >= target_sats:
+            return chosen, total
+    return [], 0

@@ -13,7 +13,7 @@ services:
       MIDDLEWARE_URL: http://middleware:8080
 
       BITCOIN_NETWORK: regtest
-      BITCOIND_RPC_URL: http://bitcoind:18443
+      BITCOIND_RPC_URL: http://192.168.99.58:18443
       BITCOIND_RPC_USER: user
       BITCOIND_RPC_PASS: pass
 

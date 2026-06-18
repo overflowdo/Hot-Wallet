@@ -16,8 +16,7 @@ from nats.aio.client import Client as NATS
 
 from .logging_setup import setup_logging
 from .metrics import INTENTS_TOTAL, UTXO_UNSPENT_GAUGE, PSBT_BUILT_TOTAL
-from .bitcoind import estimate_sat_per_vb, fetch_utxos
-from .coinselect import select_utxos, estimate_vbytes
+from .bitcoind import estimate_sat_per_vb, fetch_utxos, select_utxos, estimate_vbytes
 from .psbt_builder import build_psbt
 
 
@@ -32,8 +31,8 @@ WORK_ROOT = os.getenv("WORK_ROOT", "/var/lib/btc-work/psbt-work")
 MIDDLEWARE_URL= os.getenv("MIDDLEWARE_URL","http://middleware:8080")
 
 #BTC config
-HOT_WALLET_DESC
-COLD_WALLET_DESC
+HOT_WALLET_DESC = ""
+COLD_WALLET_DESC = ""
 
 # Fee estimation default config
 DEFAULT_INPUT_VBYTES = int(os.getenv("VIN_VB_P2WSH", "104"))
@@ -114,9 +113,7 @@ async def handle_intent_build(msg):
         # build psbt
         result = await build_psbt_for_intent(intent)
 
-        
-
-        if not result.success:
+        if not result.success or result is None:
             #metrics logging
             PSBT_BUILT_TOTAL.labels(result="failed").inc()
             INTENTS_TOTAL.labels(type="refill", result="no-psbt").inc()
@@ -359,6 +356,13 @@ async def handle_newWallet(msg):
     elif wallet["wallet_id"] == "cold": 
         global COLD_WALLET_DESC
         COLD_WALLET_DESC = wallet["xpub"]
+
+    log.info(
+        "wallet_created",
+        extra={
+            "wallet_id": wallet["wallet_id"],
+        }
+    )
     
 
 
