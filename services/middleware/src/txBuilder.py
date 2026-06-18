@@ -35,13 +35,3 @@ async def handle_psbt_created(psbt: dict):
             "error_code": psbt.get("error_code")
         }
     )
-
-
-    await asyncio.to_thread(
-        upsert_psbt_artifact,
-        psbt.get("id"),
-        "unsigned",
-        psbt.get("psbt_ref"),
-        psbt.get("sha256"),
-        None
-    )

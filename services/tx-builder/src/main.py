@@ -16,7 +16,7 @@ from nats.aio.client import Client as NATS
 
 from .logging_setup import setup_logging
 from .metrics import INTENTS_TOTAL, UTXO_UNSPENT_GAUGE, PSBT_BUILT_TOTAL
-from .bitcoind import get_psbt, get_changeAddress, get_outputAddress
+from .bitcoind import get_psbt, get_outputAddress
 
 
 app = FastAPI()
@@ -31,7 +31,9 @@ MIDDLEWARE_URL= os.getenv("MIDDLEWARE_URL","http://middleware:8080")
 
 #BTC config
 HOT_WALLET_DESC = ""
+HOT_WALLET_NAME = "keyA"
 COLD_WALLET_DESC = ""
+COLD_WALLET_NAME = "cormorant"
 
 # Fee estimation default config
 DEFAULT_INPUT_VBYTES = int(os.getenv("VIN_VB_P2WSH", "104"))
@@ -59,17 +61,11 @@ def ensure_dir(p: Path):
     p.mkdir(parents=True, exist_ok=True)
 
 
-#PSBT in den Speicher schreiben, damit middleware darauf zugreifen kann. Pfad: WORK_ROOT/intent_id/unappr.psbt
-def write_work_item(intent_id: str, psbt_bytes: bytes, meta: dict):
-    d = Path(WORK_ROOT) / intent_id
-    ensure_dir(d)
-    (d / "unappr.psbt").write_bytes(psbt_bytes)
-    (d / "meta.json").write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
 
 @dataclass
 class PsbtResult:
     success: bool
-    intent_id: int
+    intent_id: str
     psbt: Optional[bytes] = None
     error_code: Optional[str] = None
     context: Optional[dict] = field(default_factory=dict)
@@ -85,14 +81,6 @@ def healthz():
 @app.get("/metrics")
 def metrics():
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
-
-@app.get("/api/v1/work/{intent_id}/psbt")
-def get_work_psbt(intent_id: str):
-    p = Path(WORK_ROOT) / intent_id / "unappr.psbt"
-    if not p.exists():
-        raise HTTPException(404, "PSBT not found for intent_id")
-    data = p.read_bytes()
-    return {"intent_id": intent_id, "psbt_base64": base64.b64encode(data).decode("ascii"), "created_utc": utc_now_iso()}
 ###########################################################################################################
 
 
@@ -112,7 +100,7 @@ async def handle_intent_build(msg):
         # build psbt
         result = await build_psbt_for_intent(intent)
 
-        if not result.success or result is None:
+        if result is None or not result.success:
             #metrics logging
             PSBT_BUILT_TOTAL.labels(result="failed").inc()
             INTENTS_TOTAL.labels(type="refill", result="no-psbt").inc()
@@ -133,17 +121,14 @@ async def handle_intent_build(msg):
                     "created_utc": utc_now_iso()
                 }).encode()
             )
-
             return
 
-        psbt_bytes = result.psbt
-
-        meta = {
-            "intent": intent,
-            "created_utc": utc_now_iso(),
-            "network": BITCOIN_NETWORK
-        }
-        write_work_item(intent.get("id"), psbt_bytes, meta)
+        if isinstance(result.psbt, str):
+            psbt_bytes = base64.b64decode(result.psbt)
+        elif isinstance(result.psbt, bytes):
+            psbt_bytes = result.psbt
+        else:
+            raise ValueError("Invalid PSBT format")
 
         #metrics logging
         PSBT_BUILT_TOTAL.labels(result="ok").inc()
@@ -159,11 +144,11 @@ async def handle_intent_build(msg):
                     "amount_sats": intent.get("amount_sats"),
                     "source_address": intent.get("source_address"),
                     "target_address": intent.get("target_address"),
-                    "psbt_path": str(Path(WORK_ROOT) / intent.get("id") / "unappr.psbt"),
-                    "psbt_ref": f"psbt-work/{intent.get("id")}/unappr.psbt",
+                    "psbt_base64": base64.b64encode(psbt_bytes).decode(),
                     "sha256": sha256(psbt_bytes),
                     "meta": intent.get("meta", {}),
-                    "created_utc": utc_now_iso()
+                    "created_utc": utc_now_iso(),
+                    "resources": result.context or {}
                 }).encode()
             )
 
@@ -186,7 +171,6 @@ async def handle_intent_build(msg):
             )
 
   
-
 async def build_psbt_for_intent(intent: dict) -> PsbtResult:
     intent_id = intent.get("id")
     target_address = None
@@ -207,14 +191,14 @@ async def build_psbt_for_intent(intent: dict) -> PsbtResult:
 
     #Variieren nach auszuführender Aktion
     if intent.get("type") == "refill":
-        changeWallet_name = "cormarant"
-        target_address = get_outputAddress("keyA")
-        
+        changeWallet_name = COLD_WALLET_NAME
+        target_address = get_outputAddress(HOT_WALLET_NAME)
         
     elif intent.get("type") == "hot-tx":
         #change_desc = HOT_WALLET_DESC
-        changeWallet_name = "keyA"
-        target_address = intent.get("target_address", "")
+        changeWallet_name = HOT_WALLET_NAME
+        #target_address = intent.get("target_address", "") richtig, aber beim testing gerade schwierig#########################################################################################
+        target_address = get_outputAddress(COLD_WALLET_NAME)
     else:
         return PsbtResult(
             success=False,
@@ -262,6 +246,7 @@ async def build_psbt_for_intent(intent: dict) -> PsbtResult:
             "intent_id": intent_id,
             "fee_sats": fee_sats,
             "changepos": changepos,
+            "fee_rate": result.get("fee_rate"),
             "sha256": sha256(psbt_bytes)
         }
     )
@@ -269,18 +254,28 @@ async def build_psbt_for_intent(intent: dict) -> PsbtResult:
     return PsbtResult(
         success=True,
         intent_id=intent_id,
-        psbt=psbt_bytes
+        psbt=psbt_bytes,
+        context={
+            "fee_sats": fee_sats,
+            "changepos": changepos,
+            "fee_rate": result.get("fee_rate"),
+            "sha256": sha256(psbt_bytes)
+        }
     )
 
 
 async def handle_newWallet(msg):
     wallet = json.loads(msg.data.decode("utf-8"))
-    if wallet["wallet_id"] == "hot": 
+    if wallet["wallet_id"] == "hot":
         global HOT_WALLET_DESC
         HOT_WALLET_DESC = wallet["desc"]
+        global HOT_WALLET_NAME
+        HOT_WALLET_NAME = wallet["name"]
     elif wallet["wallet_id"] == "cold": 
         global COLD_WALLET_DESC
         COLD_WALLET_DESC = wallet["desc"]
+        global COLD_WALLET_NAME
+        COLD_WALLET_NAME = wallet["name"]
 
     log.info(
         "wallet_created",
@@ -289,7 +284,6 @@ async def handle_newWallet(msg):
         }
     )
     
-
 
 @app.on_event("startup")
 async def startup():

@@ -23,11 +23,11 @@ def utc_now_iso() -> str:
     )
 
 async def sign_psbt(psbt: dict) -> dict:
-        #Weiterleitung zu Sign Funktion
+    #Weiterleitung zu Sign Funktion
     try:
         signed = await sign_psbt_on_signer(
             psbt.get("id"),
-            psbt.get("psbt_ref"),
+            psbt.get("psbt_base64"),
             psbt.get("sha256")
         )
     except Exception as e:
@@ -40,7 +40,7 @@ async def sign_psbt(psbt: dict) -> dict:
                 "source_address": psbt.get("source_address"),
                 "target_address": psbt.get("target_address"),
                 "meta": {},
-                "error_code": psbt.get("error_code"),
+                "error_code": e
             }
         )
         return
@@ -91,7 +91,7 @@ async def sign_psbt(psbt: dict) -> dict:
 #Sprich NixOs Signer per WG und HMAC an
 async def sign_psbt_on_signer(
         psbt_id: str,
-        psbt_ref: str,
+        psbt: str,
         sha256: str,
         psbt_type,
     ):
@@ -101,7 +101,7 @@ async def sign_psbt_on_signer(
         payload = {
             "psbt_id": psbt_id,
             "psbt_type": psbt_type,
-            "psbt_ref": psbt_ref,
+            "psbt_ref": psbt,
             "sha256": sha256,
             "timestamp": timestamp,
             "nonce": nonce

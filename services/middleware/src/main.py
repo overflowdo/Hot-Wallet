@@ -128,22 +128,22 @@ async def startup():
         await handle_psbt_created(psbt)
         #refill und hot-tx müssen gesigned werden
         #Weiterleitung zum Signer
-        signed = await sign_psbt()
+        signed = await sign_psbt(psbt)
+        if signed is not None:
+            if psbt.get("type") == "hot-tx":
+                rawtx_hex = signed.get("rawtx_hex")
 
-        if psbt.get("state") == "hot-tx":
-            rawtx_hex = signed.get("rawtx_hex")
+                if not rawtx_hex:
+                    raise RuntimeError("Signer did not return rawtx_hex")
 
-            if not rawtx_hex:
-                raise RuntimeError("Signer did not return rawtx_hex")
+                #Broadcasting
+                txid = await broadcast_to_bitcoind(rawtx_hex)
 
-            #Broadcasting
-            txid = await broadcast_to_bitcoind(rawtx_hex)
+                # to add logging
 
-            # to add logging
-
-        elif psbt.set("state") == "refill":
-            #Notify Human via ntfy for start of manual proess
-            return
+            elif psbt.get("type") == "refill":
+                #Notify Human via ntfy for start of manual proess
+                return
         
 
     #Initial
