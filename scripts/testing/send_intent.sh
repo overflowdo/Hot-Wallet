@@ -5,8 +5,9 @@ NATS_SERVER="nats://nats:4222"
 
 PAYLOAD=$(jq -n \
   --arg id "t1-refill" \
+  --arg source "cold" \
   --arg network "regtest" \
-  --arg address "cold" \
+  --arg address "hot" \
   --argjson amount 1000 \
   '{
       id: $id,
@@ -14,6 +15,7 @@ PAYLOAD=$(jq -n \
       network: $network,
       amount_sats: $amount,
       target_address: $address,
+      source_address: $source,
       meta: {}
    }')
 
@@ -25,6 +27,7 @@ PAYLOAD=$(jq -n \
   --arg id "t1-network-deny" \
   --arg network "tester" \
   --arg address "bcrt1qanotherexampledestinationaddress00000000000" \
+  --arg source "hot" \
   --argjson amount 1000 \
   '{
       id: $id,
@@ -32,6 +35,7 @@ PAYLOAD=$(jq -n \
       network: $network,
       amount_sats: $amount,
       target_address: $address,
+      source_address: $source,
       meta: {}
    }')
 
@@ -44,12 +48,14 @@ PAYLOAD=$(jq -n \
   --arg network "regtest" \
   --arg address "bcrt1qanotherexampledestinationaddress00000000000" \
   --argjson amount 5000001 \
+  --arg source "hot" \
   '{
       id: $id,
       type: "hot-tx",
       network: $network,
       amount_sats: $amount,
       target_address: $address,
+      source_address: $source,
       meta: {}
    }')
 
@@ -62,12 +68,14 @@ PAYLOAD=$(jq -n \
   --arg network "regtest" \
   --arg address "bcrt1qanotherexampledestinationaddress00000000001" \
   --argjson amount 1000 \
+  --arg source "hot" \
   '{
       id: $id,
       type: "hot-tx",
       network: $network,
       amount_sats: $amount,
       target_address: $address,
+      source_address: $source,
       meta: {}
    }')
 
@@ -80,12 +88,14 @@ PAYLOAD=$(jq -n \
   --arg network "regtest" \
   --arg address "bcrt1qanotherexampledestinationaddress00000000000" \
   --argjson amount 1000 \
+  --arg source "hot" \
   '{
       id: $id,
       type: "hot-tx",
       network: $network,
       amount_sats: $amount,
       target_address: $address,
+      source_address: $source,
       meta: {}
    }')
 

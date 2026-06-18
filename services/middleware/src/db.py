@@ -55,7 +55,7 @@ def get_wallet(wallet_id: str):
                 SELECT wallet_id, xpub, derivation_path, gap_limit, last_used_index, next_scan_index
                 FROM btc.wallet
                 WHERE wallet_id = %s
-            """, (wallet_id))
+            """, (wallet_id,))
             return cur.fetchone()
         
 
@@ -67,8 +67,8 @@ def get_desc(wallet_id: str):
                 SELECT xpub
                 FROM btc.wallet
                 WHERE wallet_id = %s
-            """, (wallet_id))
-            return cur.fetchall()
+            """, (wallet_id,))
+            return cur.fetchone()
 
     
 

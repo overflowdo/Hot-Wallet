@@ -31,19 +31,20 @@ WORK_ROOT = os.getenv("WORK_ROOT", "/var/lib/btc-work/psbt-work")
 
 MIDDLEWARE_URL= os.getenv("MIDDLEWARE_URL","http://middleware:8080")
 
-# Fee estimation config
+#BTC config
+HOT_WALLET_ID
+COLD_WALLET_ID
+
+# Fee estimation default config
+DEFAULT_INPUT_VBYTES = int(os.getenv("VIN_VB_P2WSH", "104"))
+DEFAULT_OUTPUT_VBYTES = int(os.getenv("VOUT_VB", "31"))
+FEE_TOLERANCE_SATS = int(os.getenv("FEE_TOLERANCE_SATS", "10"))
+
+#Standard values für TXs
 FEE_TARGET_BLOCKS = int(os.getenv("FEE_TARGET_BLOCKS", "6"))
-VIN_VB_P2WSH = int(os.getenv("VIN_VB_P2WSH", "104"))
-VOUT_VB = int(os.getenv("VOUT_VB", "31"))
-
-#Event gesendet von middleware
-SUBJECT_BUILD_INTENT = "psbt.build.requested"
-
-HOT_DEPOSIT_SCRIPT_HEX = os.getenv("HOT_DEPOSIT_SCRIPT_HEX", "").lower()
-COLD_CHANGE_SCRIPT_HEX = os.getenv("COLD_CHANGE_SCRIPT_HEX", "").lower()
-
 MAX_FEE_SATS = int(os.getenv("MAX_FEE_SATS", "50000"))
 MAX_FEE_RATE_SAT_VB = int(os.getenv("MAX_FEE_RATE_SAT_VB", "50"))
+DUST_LIMIT = int(os.getenv("DUST_LIMIT", "50")) 
 
 log = logging.getLogger("tx-builder")
 
@@ -191,7 +192,7 @@ async def handle_intent_build(msg):
   
 #Hilfsfunktion fee
 def estimate_fee_and_vbytes(n_in: int, n_out: int, sat_vb: int):
-    vbytes = estimate_vbytes(n_in, n_out, VIN_VB_P2WSH, VOUT_VB)
+    vbytes = estimate_vbytes(n_in, n_out, DEFAULT_INPUT_VBYTES, DEFAULT_OUTPUT_VBYTES)
     if vbytes <= 0:
         return None, None
     fee = sat_vb * vbytes
@@ -239,121 +240,101 @@ async def build_psbt_for_intent(intent: dict) -> PsbtResult:
             success=False,
             intent_id=intent_id,
             error_code="NO_UTXOS_AVAILABLE"
-        ) 
-
-    chosen, total = select_utxos(utxos, amount_sats)
-    if not chosen:
-        log.warning("not_enough_utxos_for_amount", extra={"intent_id": intent_id, "amount_sats": amount_sats})
-        return PsbtResult(
-            success=False,
-            intent_id=intent_id,
-            error_code="NOT_ENOUGH_UTXOS"
         )
+    
+    fee = 0
 
-    # 2. fee estimation I
     sat_vb = await estimate_sat_per_vb(FEE_TARGET_BLOCKS)
-    fee, vbytes = estimate_fee_and_vbytes(len(chosen), 2, sat_vb)
 
-    if fee is None or vbytes is None:
-        log.warning("invalid_vbytes", extra={"intent_id": intent_id})
-        return PsbtResult(
-            success=False,
-            intent_id=intent_id,
-            error_code="INVALID_VBYTES"
+    while True:
+
+        chosen, total = select_utxos(utxos, amount_sats + fee)
+        if not chosen:
+            log.warning("not_enough_utxos_for_amount", extra={"intent_id": intent_id, "amount_sats": amount_sats})
+            return PsbtResult(
+                success=False,
+                intent_id=intent_id,
+                error_code="NOT_ENOUGH_UTXOS"
+            )
+        
+        #Vorläufiger Change
+        change = total - amount_sats - fee
+        if change < 0:
+            log.warning("change_negative", extra={"change_sats": change, "total": total, "amount": amount_sats, "fee": fee})
+            return PsbtResult(
+                success=False,
+                intent_id=intent_id,
+                error_code="NEGATIVE_CHANGE",
+                context={
+                    "change_sats": change,
+                    "total": total,
+                    "amount": amount_sats,
+                    "fee": fee
+                }
+            )
+
+        #Anzahl Outputs
+        has_change = change >= DUST_LIMIT
+        n_outputs = 2 if has_change else 1
+
+        #Neue Fee
+        newFee, vbytes = estimate_fee_and_vbytes(
+            len(chosen),
+            n_outputs,
+            sat_vb
         )
-
-    #Absolute fee
-    if fee > MAX_FEE_SATS:
-        log.warning("fee_too_high", extra={"fee": fee})
-        return PsbtResult(
-            success=False,
-            intent_id=intent_id,
-            error_code="FEE_TOO_HIGH",
-            context={"fee_sats": fee}
-        )
-
-    #fee rate
-    fee_rate = fee / vbytes
-    if fee_rate > MAX_FEE_RATE_SAT_VB:
-        log.warning("fee_rate_too_high", extra={"fee_rate": fee_rate})
-        return PsbtResult(
-            success=False,
-            intent_id=intent_id,
-            error_code="FEE_RATE_TOO_HIGH",
-            context={"fee_rate": fee_rate}
-        )
-
-    # 3. reselect INCLUDING fee
+        #Werte kontrollieren
+        if newFee is None or vbytes is None:
+            log.warning("invalid_vbytes", extra={"intent_id": intent_id})
+            return PsbtResult(
+                success=False,
+                intent_id=intent_id,
+                error_code="INVALID_VBYTES"
+            )
+        if newFee > MAX_FEE_SATS:
+            log.warning("fee_too_high", extra={"fee": newFee})
+            return PsbtResult(
+                success=False,
+                intent_id=intent_id,
+                error_code="FEE_TOO_HIGH",
+                context={"fee_sats": fee}
+            )
+        newFee_rate = newFee / vbytes
+        if newFee_rate > MAX_FEE_RATE_SAT_VB:
+            log.warning("fee_rate_too_high", extra={"fee_rate": newFee_rate})
+            return PsbtResult(
+                success=False,
+                intent_id=intent_id,
+                error_code="FEE_RATE_TOO_HIGH",
+                context={"fee_rate": newFee_rate}
+            )
+        
+        #Abbruch bed.: Fee stabil?
+        if abs(newFee - fee) <= FEE_TOLERANCE_SATS and fee != 0:
+            fee = newFee
+            break
+        fee = newFee
 
     chosen, total = select_utxos(utxos, amount_sats + fee)
-    if not chosen:
-        log.warning("not_enough_utxos", extra={"amount_sats": amount_sats, "fee": fee})
-        return PsbtResult(
-             success=False,
-             intent_id=intent_id,
-             error_code="NOT_ENOUGH_UTXOS",
-             context={
-                "amount_sats": amount_sats,
-                "chosen": len(chosen),
-                "chosen_total": total,
-                "fee": fee
-            }
-        )
-
-    # 4. final fee stable state
-    fee, vbytes = estimate_fee_and_vbytes(len(chosen), 2, sat_vb)
-
-    if fee is None or vbytes is None:
-        log.warning("invalid_vbytes", extra={"intent_id": intent_id})
-        return PsbtResult(
-            success=False,
-            intent_id=intent_id,
-            error_code="INVALID_VBYTES"
-        )
-
-    if fee > MAX_FEE_SATS:
-        log.warning("fee_too_high_stable", extra={"fee": fee})
-        return PsbtResult(
-            success=False,
-            intent_id=intent_id,
-            error_code="FEE_TOO_HIGHII",
-            context={"fee_sats": fee}
-        )
-
-    fee_rate = fee / vbytes
-    if fee_rate > MAX_FEE_RATE_SAT_VB:
-        log.warning("fee_rate_too_high_stable", extra={"fee_rate": fee_rate})
-        return PsbtResult(
-            success=False,
-            intent_id=intent_id,
-            error_code="FEE_RATE_TOO_HIGH_stable",
-            context={"fee_rate": fee_rate}
-        )
-
-    #5. change calculation
-    change = total - (amount_sats + fee)
-    if change < 0:
-        log.warning("change_negative", extra={"change_sats": change, "total": total, "amount": amount_sats, "fee": fee})
-        return PsbtResult(
-            success=False,
-            intent_id=intent_id,
-            error_code="NEGATIVE_CHANGE",
-            context={
-                "change_sats": change,
-                "total": total,
-                "amount": amount_sats,
-                "fee": fee
-            }
-        )
+    change = total - amount_sats - fee
 
     outputs = [(output_script, amount_sats)]
 
-    psbt_bytes = build_psbt(
-        chosen,
-        outputs,
-        change_script,
-        change_sats=change
-    )
+    #Unter DUST_Limit change als miner fee
+    if change >= DUST_LIMIT:
+        psbt_bytes = build_psbt(
+            chosen,
+            outputs,
+            change_script,
+            change_sats=change
+        )
+    else:
+        psbt_bytes = build_psbt(
+            chosen,
+            outputs,
+            change_script,
+            change_sats=None
+        )
 
     log.info(
         "psbt_created",
@@ -368,6 +349,17 @@ async def build_psbt_for_intent(intent: dict) -> PsbtResult:
         intent_id=intent_id,
         psbt=psbt_bytes
     )
+
+
+async def handle_newWallet(msg):
+    wallet = json.loads(msg.data.decode("utf-8"))
+    if wallet["wallet_id"] == "hot": 
+        global HOT_WALLET_ID
+        HOT_WALLET_ID = wallet["xpub"]
+    elif wallet["wallet_id"] == "cold": 
+        global COLD_WALLET_ID
+        COLD_WALLET_ID = wallet["xpub"]
+    
 
 
 @app.on_event("startup")
@@ -389,14 +381,19 @@ async def startup():
     )
 
     await nc.subscribe(
-        SUBJECT_BUILD_INTENT,
+        "psbt.build.requested",
         cb=handle_intent_build
+    )
+
+    await nc.subscribe(
+        "newWallet.registered",
+        cb=handle_newWallet
     )
 
     log.info(
         "nats_subscribed",
         extra={
-            "subject": SUBJECT_BUILD_INTENT
+            "subject": "psbt.build.requested"
         }
     )
 

@@ -65,14 +65,17 @@ async def add_wallet(metadata: dict = Body(...)):
         metadata.get("master_fingerprint", "")
     )
 
+    #Export for tx-builder
+    await nc.publish(
+        "newWallet.registered",
+        json.dumps({"wallet_id": wallet_id, "xpub": metadata["xpub"]}).encode()
+    )
+
     return {
         "success": True,
         "wallet_id": wallet_id,
     }
     
-
-
-
 
 ############################################################################
 @app.on_event("startup")
@@ -91,11 +94,8 @@ async def startup():
 
         if await handle_intent(psbt):
             #Nach OPA
-
             #desciptoren ziehen
-            rows = await asyncio.to_thread(get_desc(psbt.get("wallet_id")))
-
-            desc = [r["xpub"] for r in rows]
+            desc = await asyncio.to_thread(get_desc, psbt.get("source_address"))
 
             await nc.publish(
                 "psbt.build.requested",

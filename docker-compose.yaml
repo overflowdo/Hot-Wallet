@@ -13,11 +13,19 @@ services:
       MIDDLEWARE_URL: http://middleware:8080
 
       BITCOIN_NETWORK: regtest
-      HOT_DEPOSIT_SCRIPT_HEX: "0014aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-      COLD_CHANGE_SCRIPT_HEX: "0014bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      BITCOIND_RPC_URL: http://bitcoind:18443
+      BITCOIND_RPC_USER: user
+      BITCOIND_RPC_PASS: pass
+
+      MAX_FEE_SATS: 5000
+      MAX_FEE_RATE_SAT_VB: 50
+      FEE_TOLERANCE_SATS: 10
+      DEFAULT_INPUT_VBYTES: 104
+      DEFAULT_OUTPUT_VBYTES: 31
+      DUST_LIMIT: 546
 
     volumes:
-      - tx_builder_data:/var/lib/tx-builder
+      - tx_builder_data:/run/psbts
     depends_on:
       - nats
       - postgres
@@ -88,7 +96,6 @@ services:
     volumes:
     - postgres_data:/run/postgresql/data
     - ./services/postgres/001_psbt.sql:/docker-entrypoint-initdb.d/001_psbt.sql:ro
-    - ./services/postgres/002_wallet.sql:/docker-entrypoint-initdb.d/002_wallet.sql:ro
 
 volumes:
   tx_builder_data:
