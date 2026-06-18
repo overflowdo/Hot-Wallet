@@ -16,8 +16,7 @@ from nats.aio.client import Client as NATS
 
 from .logging_setup import setup_logging
 from .metrics import INTENTS_TOTAL, UTXO_UNSPENT_GAUGE, PSBT_BUILT_TOTAL
-from .bitcoind import estimate_sat_per_vb, fetch_utxos, select_utxos, estimate_vbytes
-from .psbt_builder import build_psbt
+from .bitcoind import get_psbt, get_changeAddress, get_outputAddress
 
 
 app = FastAPI()
@@ -187,35 +186,13 @@ async def handle_intent_build(msg):
             )
 
   
-#Hilfsfunktion fee
-def estimate_fee_and_vbytes(n_in: int, n_out: int, sat_vb: int):
-    vbytes = estimate_vbytes(n_in, n_out, DEFAULT_INPUT_VBYTES, DEFAULT_OUTPUT_VBYTES)
-    if vbytes <= 0:
-        return None, None
-    fee = sat_vb * vbytes
-    return fee, vbytes
-
 
 async def build_psbt_for_intent(intent: dict) -> PsbtResult:
     intent_id = intent.get("id")
-    wallet = None
-    output_script = None
-    change_script = None
-    utxos = None
+    target_address = None
+    #change_desc = None
+    changeWallet_name = None
 
-    #Variieren nach auszuführender Aktion
-    if intent.get("type") == "refill":
-        output_script = HOT_WALLET_DESC
-        change_script = COLD_WALLET_DESC
-        wallet = "cold"
-        
-    elif intent.get("type") == "hot-tx":
-        output_script = intent.get("target_address")
-        change_script = HOT_WALLET_DESC
-        wallet = "hot"
-
-    # 0. prereq. amount
-    # Redundanz zu OPA, aber wichtiger check für operationelle funktionalität
     amount_sats = int(intent.get("amount_sats", 0))
     if amount_sats <= 0:
         log.warning("invalid_amount", extra={
@@ -228,115 +205,63 @@ async def build_psbt_for_intent(intent: dict) -> PsbtResult:
             error_code="INVALID_AMOUNT",
         )
 
-    # 1. initial coin selection (no fee)
-
-    utxos = await fetch_utxos(intent.get("descriptors"))
-    if not utxos:
-        log.warning("no_utxos_available", extra={"intent_id": intent_id})
+    #Variieren nach auszuführender Aktion
+    if intent.get("type") == "refill":
+        changeWallet_name = "cormarant"
+        target_address = get_outputAddress("keyA")
+        
+        
+    elif intent.get("type") == "hot-tx":
+        #change_desc = HOT_WALLET_DESC
+        changeWallet_name = "keyA"
+        target_address = intent.get("target_address", "")
+    else:
         return PsbtResult(
             success=False,
             intent_id=intent_id,
-            error_code="NO_UTXOS_AVAILABLE"
+            error_code="UNKNOWN_INTENT_TYPE",
         )
     
-    fee = 0
+    #change_address = get_changeAddress(changeWallet_name)
+    
+    #sats → BTC
+    amount_btc = amount_sats / 1e8
 
-    sat_vb = await estimate_sat_per_vb(FEE_TARGET_BLOCKS)
+    outputs = {
+        target_address: amount_btc
+    }
 
-    while True:
-
-        chosen, total = select_utxos(utxos, amount_sats + fee)
-        if not chosen:
-            log.warning("not_enough_utxos_for_amount", extra={"intent_id": intent_id, "amount_sats": amount_sats})
-            return PsbtResult(
-                success=False,
-                intent_id=intent_id,
-                error_code="NOT_ENOUGH_UTXOS"
-            )
+    #Vorher manuell fee stabilisierung + block abgragung bei RPC
+    #Dann direkte Methode gefunden
+    try:
+        result = get_psbt(outputs, changeWallet_name)
         
-        #Vorläufiger Change
-        change = total - amount_sats - fee
-        if change < 0:
-            log.warning("change_negative", extra={"change_sats": change, "total": total, "amount": amount_sats, "fee": fee})
-            return PsbtResult(
-                success=False,
-                intent_id=intent_id,
-                error_code="NEGATIVE_CHANGE",
-                context={
-                    "change_sats": change,
-                    "total": total,
-                    "amount": amount_sats,
-                    "fee": fee
-                }
-            )
-
-        #Anzahl Outputs
-        has_change = change >= DUST_LIMIT
-        n_outputs = 2 if has_change else 1
-
-        #Neue Fee
-        newFee, vbytes = estimate_fee_and_vbytes(
-            len(chosen),
-            n_outputs,
-            sat_vb
+    except Exception as e:
+        return PsbtResult(
+            success=False,
+            intent_id=intent_id,
+            error_code="RPC_ERROR",
+            context={"message": str(e)}
         )
-        #Werte kontrollieren
-        if newFee is None or vbytes is None:
-            log.warning("invalid_vbytes", extra={"intent_id": intent_id})
-            return PsbtResult(
-                success=False,
-                intent_id=intent_id,
-                error_code="INVALID_VBYTES"
-            )
-        if newFee > MAX_FEE_SATS:
-            log.warning("fee_too_high", extra={"fee": newFee})
-            return PsbtResult(
-                success=False,
-                intent_id=intent_id,
-                error_code="FEE_TOO_HIGH",
-                context={"fee_sats": fee}
-            )
-        newFee_rate = newFee / vbytes
-        if newFee_rate > MAX_FEE_RATE_SAT_VB:
-            log.warning("fee_rate_too_high", extra={"fee_rate": newFee_rate})
-            return PsbtResult(
-                success=False,
-                intent_id=intent_id,
-                error_code="FEE_RATE_TOO_HIGH",
-                context={"fee_rate": newFee_rate}
-            )
-        
-        #Abbruch bed.: Fee stabil?
-        if abs(newFee - fee) <= FEE_TOLERANCE_SATS and fee != 0:
-            fee = newFee
-            break
-        fee = newFee
+    
+    psbt = result.get("psbt")#
 
-    chosen, total = select_utxos(utxos, amount_sats + fee)
-    change = total - amount_sats - fee
+    fee_btc = result.get("fee", 0)
+    fee_sats = int(fee_btc * 1e8)
 
-    outputs = [(output_script, amount_sats)]
+    fee_rate = result.get("fee_rate")
 
-    #Unter DUST_Limit change als miner fee
-    if change >= DUST_LIMIT:
-        psbt_bytes = build_psbt(
-            chosen,
-            outputs,
-            change_script,
-            change_sats=change
-        )
-    else:
-        psbt_bytes = build_psbt(
-            chosen,
-            outputs,
-            change_script,
-            change_sats=None
-        )
+    changepos = result.get("changepos", None)
+
+
+    psbt_bytes = base64.b64decode(psbt) if isinstance(psbt, str) else psbt
 
     log.info(
-        "psbt_created",
+        "psbt_created_core",
         extra={
             "intent_id": intent_id,
+            "fee_sats": fee_sats,
+            "changepos": changepos,
             "sha256": sha256(psbt_bytes)
         }
     )
@@ -352,10 +277,10 @@ async def handle_newWallet(msg):
     wallet = json.loads(msg.data.decode("utf-8"))
     if wallet["wallet_id"] == "hot": 
         global HOT_WALLET_DESC
-        HOT_WALLET_DESC = wallet["xpub"]
+        HOT_WALLET_DESC = wallet["desc"]
     elif wallet["wallet_id"] == "cold": 
         global COLD_WALLET_DESC
-        COLD_WALLET_DESC = wallet["xpub"]
+        COLD_WALLET_DESC = wallet["desc"]
 
     log.info(
         "wallet_created",

@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS btc.wallet (
 
     active           BOOLEAN NOT NULL DEFAULT true,
     next_scan_index  INTEGER DEFAULT 0, 
-    descriptor        TEXT NOT NULL
+    descriptor        TEXT NOT NULL,
 
     created_utc      TIMESTAMPTZ NOT NULL DEFAULT now()
 );

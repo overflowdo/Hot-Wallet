@@ -41,3 +41,23 @@ deny["tag required"] if{
   data.hot.require_tag == true
   not input.meta.tag
 }
+
+
+# deny["fee too high"] if {
+#     input.fee_sats > data.hot.limits.max_fee_sats
+# }
+
+# deny["fee per sat too high"] if {
+#     input.fee_sats > data.hot.limits.max_fee_sats
+# }
+
+#vbytes contraint?
+
+# deny["too many inputs"] if {
+#     input.inputs_count > data.hot.limits.max_inputs
+# }
+
+# deny["missing changepos"] if {
+#     input.changepos == -1
+#     not data.hot.allow_no_change
+# }

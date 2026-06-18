@@ -143,7 +143,7 @@ do
           '
           {
             wallet_type: $wallet_type,
-            xpub: ""
+            xpub: "",
             descriptor: $desc,
             network: $network,
           }

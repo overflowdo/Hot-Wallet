@@ -59,11 +59,11 @@ async def add_wallet(metadata: dict = Body(...)):
         create_wallet,
         wallet_id,
         metadata.get("wallet_type") or "external",
-        metadata["network"],
-        metadata["xpub"],
+        metadata.get("network"),
+        metadata.get("xpub",""),
         metadata.get("derivation_path", ""),
         metadata.get("master_fingerprint", ""),
-        metadata.get("desciptor")
+        metadata.get("descriptor")
     )
 
     #Export for tx-builder

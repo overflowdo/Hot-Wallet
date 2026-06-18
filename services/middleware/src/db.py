@@ -115,7 +115,7 @@ def create_wallet(
                     network,
                     xpub,
                     derivation_path,
-                    master_fingerprint
+                    master_fingerprint,
                     descriptor
                 )
                 VALUES (%s,%s,%s,%s,%s,%s,%s)
