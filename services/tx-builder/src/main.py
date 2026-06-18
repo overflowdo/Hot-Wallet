@@ -32,8 +32,8 @@ WORK_ROOT = os.getenv("WORK_ROOT", "/var/lib/btc-work/psbt-work")
 MIDDLEWARE_URL= os.getenv("MIDDLEWARE_URL","http://middleware:8080")
 
 #BTC config
-HOT_WALLET_ID
-COLD_WALLET_ID
+HOT_WALLET_DESC
+COLD_WALLET_DESC
 
 # Fee estimation default config
 DEFAULT_INPUT_VBYTES = int(os.getenv("VIN_VB_P2WSH", "104"))
@@ -208,13 +208,13 @@ async def build_psbt_for_intent(intent: dict) -> PsbtResult:
 
     #Variieren nach auszuführender Aktion
     if intent.get("type") == "refill":
-        output_script = HOT_DEPOSIT_SCRIPT_HEX
-        change_script = COLD_CHANGE_SCRIPT_HEX
+        output_script = HOT_WALLET_DESC
+        change_script = COLD_WALLET_DESC
         wallet = "cold"
         
     elif intent.get("type") == "hot-tx":
         output_script = intent.get("target_address")
-        change_script = HOT_DEPOSIT_SCRIPT_HEX
+        change_script = HOT_WALLET_DESC
         wallet = "hot"
 
     # 0. prereq. amount
@@ -354,11 +354,11 @@ async def build_psbt_for_intent(intent: dict) -> PsbtResult:
 async def handle_newWallet(msg):
     wallet = json.loads(msg.data.decode("utf-8"))
     if wallet["wallet_id"] == "hot": 
-        global HOT_WALLET_ID
-        HOT_WALLET_ID = wallet["xpub"]
+        global HOT_WALLET_DESC
+        HOT_WALLET_DESC = wallet["xpub"]
     elif wallet["wallet_id"] == "cold": 
-        global COLD_WALLET_ID
-        COLD_WALLET_ID = wallet["xpub"]
+        global COLD_WALLET_DESC
+        COLD_WALLET_DESC = wallet["xpub"]
     
 
 
