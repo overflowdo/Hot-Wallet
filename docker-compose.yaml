@@ -45,6 +45,8 @@ services:
       OPA_URL: http://opa:8181
       SIGNER_URL: http://10.50.0.1:8080
       DATABASE_URL: postgresql://user:pass@postgres:5432/btc
+
+      SIGNER_HMAC_SECRET: /run/secrets/signer-hmac.secret
     depends_on:
       - nats
       - opa

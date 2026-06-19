@@ -29,9 +29,7 @@ patch_metadata() {
   fi
 
   local xpub
-  if [[ -f "$xpub_file" ]]; then
-    xpub=$(cat "$xpub_file")
-  fi
+  xpub=$(cat "$xpub_file")
 
 
   local tmp
@@ -55,21 +53,59 @@ echo "=== Import Hot/Cold Signer ==="
 
 mkdir -p "$USB_MOUNT" "$SECRETS_DIR" "$WALLET_DIR"
 
-mount "$USB_DEVICE" "$USB_MOUNT"
+if mountpoint -q "$USB_MOUNT"; then
+  echo "USB already mounted at $USB_MOUNT, skipping mount"
+else
+  echo "Mounting USB..."
+  mount "$USB_DEVICE" "$USB_MOUNT"
+fi
 
 echo ""
 echo "Checking communication files (optional)..."
 
 # communication (OPTIONAL)
+#WG
 if [[ -f "$USB_MOUNT/communication/wireguard-public.key" ]]; then
+    mkdir -p /etc/wireguard/peers
     cp "$USB_MOUNT/communication/wireguard-public.key" \
-       "$SECRETS_DIR/wireguard-public.key"
-    chmod 644 "$SECRETS_DIR/wireguard-public.key"
+       "/etc/wireguard/peers/wireguard-public.key"
+    chmod 644 "/etc/wireguard/peers/wireguard-public.key"
     echo "Imported: wireguard-public.key"
 else
     echo "Skipping: wireguard-public.key (not found)"
 fi
 
+WG_JSON="$USB_MOUNT/communication/wireguard.signer.json"
+
+if [[ -f "$WG_JSON" ]]; then
+    echo "Applying WireGuard peer from JSON..."
+
+    SIGNER_PUB_KEY=$(jq -r '.signer_public_key' "$WG_JSON")
+    SIGNER_IP=$(jq -r '.signer_ip' "$WG_JSON")
+
+    #interface name (assumption wg0)
+    WG_IF="wg0"
+
+    # ensure interface exists
+    if ip link show "$WG_IF" >/dev/null 2>&1; then
+
+        # add/update peer dynamically
+        wg set "$WG_IF" peer "$SIGNER_PUB_KEY" \
+            allowed-ips "${SIGNER_IP%/*}/32"
+
+        echo "Peer applied via wg set"
+    else
+        echo "WARNING: WireGuard interface $WG_IF not found"
+        echo "Falling back to wg-quick reload required"
+    fi
+
+else
+    echo "Skipping: wireguard.signer.json not found"
+fi
+
+
+#########################################
+#HMAC
 if [[ -f "$USB_MOUNT/communication/signer-hmac.secret" ]]; then
     cp "$USB_MOUNT/communication/signer-hmac.secret" \
        "$SECRETS_DIR/signer-hmac.secret"

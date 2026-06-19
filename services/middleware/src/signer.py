@@ -12,6 +12,12 @@ from .db import insert_psbt, upsert_psbt_artifact
 SIGNER_URL = os.getenv("SIGNER_URL")
 SIGNER_HMAC_SECRET = os.getenv("SIGNER_HMAC_SECRET")
 
+if not SIGNER_URL:
+    raise RuntimeError("SIGNER_URL is not set")
+
+if not SIGNER_HMAC_SECRET:
+    raise RuntimeError("SIGNER_HMAC_SECRET is not set")
+
 
 #Hilfsfunktion für API communication zur Signer VM
 def utc_now_iso() -> str:
@@ -28,7 +34,8 @@ async def sign_psbt(psbt: dict) -> dict:
         signed = await sign_psbt_on_signer(
             psbt.get("id"),
             psbt.get("psbt_base64"),
-            psbt.get("sha256")
+            psbt.get("sha256"),
+            psbt.get("type")
         )
     except Exception as e:
         await asyncio.to_thread(
@@ -40,7 +47,7 @@ async def sign_psbt(psbt: dict) -> dict:
                 "source_address": psbt.get("source_address"),
                 "target_address": psbt.get("target_address"),
                 "meta": {},
-                "error_code": e
+                "error_code": str(e)
             }
         )
         return
@@ -93,18 +100,26 @@ async def sign_psbt_on_signer(
         psbt_id: str,
         psbt: str,
         sha256: str,
-        psbt_type,
+        psbt_type: str,
     ):
+        if os.path.isfile(SIGNER_HMAC_SECRET):
+            print("Gültige Datei")
+            with open(SIGNER_HMAC_SECRET, "rb") as f:
+                secret = f.read().strip()
+        else:
+            print("Nicht vorhanden oder kein File")
+            raise FileNotFoundError(
+                 f"HMAC secret not found: {SIGNER_HMAC_SECRET}"
+            )
+        
         timestamp = utc_now_iso()
         nonce = secrets.token_hex(16)
 
         payload = {
             "psbt_id": psbt_id,
             "psbt_type": psbt_type,
-            "psbt_ref": psbt,
+            "psbt": psbt,
             "sha256": sha256,
-            "timestamp": timestamp,
-            "nonce": nonce
         }
 
         body = json.dumps(
@@ -116,7 +131,7 @@ async def sign_psbt_on_signer(
         msg = timestamp.encode() + nonce.encode() + body
 
         signature = hmac.new(
-            SIGNER_HMAC_SECRET.encode(),
+            secret,
             msg,
             hashlib.sha256
         ).hexdigest()
@@ -128,12 +143,16 @@ async def sign_psbt_on_signer(
             "X-Signature": signature,
         }
 
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            r = await client.post(
-                f"{SIGNER_URL}/sign",
-                content=body,
-                headers=headers
-            )
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                r = await client.post(
+                    f"{SIGNER_URL}/sign",
+                    content=body,
+                    headers=headers
+                )
 
-            r.raise_for_status()
-            return r.json()
+                r.raise_for_status()
+                return r.json()
+        
+        except httpx.HTTPError as e:
+            raise RuntimeError(f"Signer request failed: {e}") from e
