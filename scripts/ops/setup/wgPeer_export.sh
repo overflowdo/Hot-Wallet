@@ -32,7 +32,10 @@ mkdir -p "$USB_MOUNT/communication/wireguard"
 WG_PORT="51820"
 
 
-SIGNER_ENDPOINT_IP=$(ip route get 1.1.1.1 | awk '{print $7; exit}')
+if [[ -z "${SIGNER_ENDPOINT_IP:-}" ]]; then
+  SIGNER_ENDPOINT_IP=$(ip route get 1.1.1.1 | awk '{print $7; exit}')
+fi
+
 
 
 SIGNER_IP="10.10.0.2/24"
@@ -44,13 +47,13 @@ WIREGUARD_JSON="$USB_MOUNT/communication/wireguard/wireguard.wallet.json"
 
 cat > "$WIREGUARD_JSON" <<EOF
 {
-  "Wallet_public_key": "$SIGNER_PUB_KEY",
+  "wallet_public_key": "$SIGNER_PUB_KEY",
   "signer_ip": "$SIGNER_IP",
   "wallet_ip": "$WALLET_IP",
   "port": $WG_PORT,
   "endpoint": "${SIGNER_ENDPOINT_IP}:${WG_PORT}",
-  "allowed_ips_signer": "$WALLET_IP/32",
-  "allowed_ips_wallet": "$SIGNER_IP/32"
+  "allowed_ips_signer": "$WALLET_IP/24",
+  "allowed_ips_wallet": "$SIGNER_IP/24"
 }
 EOF
 

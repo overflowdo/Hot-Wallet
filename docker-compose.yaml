@@ -43,7 +43,8 @@ services:
 
       NATS_URL: nats://nats:4222
       OPA_URL: http://opa:8181
-      SIGNER_URL: http://10.50.0.1:8080
+      SIGNER_URL: http://10.10.0.2
+      SIGNER_PORT: 8080
       DATABASE_URL: postgresql://user:pass@postgres:5432/btc
 
       SIGNER_HMAC_SECRET: /run/secrets/signer-hmac.secret

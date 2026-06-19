@@ -87,6 +87,31 @@ if [[ -f "$WG_JSON" ]]; then
 
     ALLOWED_IP="${SIGNER_IP%/*}/32"
 
+    if [[ -f "$WG_CONF" ]]; then
+        if grep -q "$SIGNER_PUB_KEY" "$WG_CONF"; then
+            echo "Peer already exists. Overwriting peer configuration in $WG_CONF..."
+            
+            # Entfernt den alten [Peer]-Block, der diesen Public Key enthält, bis zum nächsten Block oder Dateiende
+            sed -i "/\[Peer\]/,/^\s*$/{/$SIGNER_PUB_KEY/d; d;}" "$WG_CONF"
+            
+            # Bereinigt eventuell entstandene doppelte Leerzeilen am Dateiende
+            sed -i -e :a -e '/^\n*$/{$d;N;ba' -e '}' "$WG_CONF"
+        else
+            echo "Writing new peer to $WG_CONF..."
+        fi
+
+        # Schreibt den aktuellen Peer-Block ans Ende der Datei
+        cat <<EOF >> "$WG_CONF"
+
+[Peer]
+PublicKey = $SIGNER_PUB_KEY
+AllowedIPs = $ALLOWED_IP
+PersistentKeepalive = 25
+EOF
+    else
+        echo "WARNING: Configuration file $WG_CONF not found. Could not persist peer."
+    fi
+
     #interface exists
     if ! ip link show "$WG_IF" >/dev/null 2>&1; then
         echo "WireGuard interface $WG_IF missing → creating..."

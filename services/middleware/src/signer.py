@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from .db import insert_psbt, upsert_psbt_artifact
 
 SIGNER_URL = os.getenv("SIGNER_URL")
+SIGNER_PORT = os.getenv("SIGNER_URL")
 SIGNER_HMAC_SECRET = os.getenv("SIGNER_HMAC_SECRET")
 
 if not SIGNER_URL:
@@ -146,7 +147,7 @@ async def sign_psbt_on_signer(
         try:
             async with httpx.AsyncClient(timeout=60.0) as client:
                 r = await client.post(
-                    f"{SIGNER_URL}/sign",
+                    f"{SIGNER_URL}:{SIGNER_PORT}/sign",
                     content=body,
                     headers=headers
                 )
