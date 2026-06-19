@@ -75,7 +75,7 @@ else
     echo "Skipping: wireguard-public.key (not found)"
 fi
 
-WG_JSON="$USB_MOUNT/communication/wireguard.signer.json"
+WG_JSON="$USB_MOUNT/communication/wireguard/wireguard.signer.json"
 
 if [[ -f "$WG_JSON" ]]; then
     echo "Applying WireGuard peer from JSON..."
@@ -83,21 +83,36 @@ if [[ -f "$WG_JSON" ]]; then
     SIGNER_PUB_KEY=$(jq -r '.signer_public_key' "$WG_JSON")
     SIGNER_IP=$(jq -r '.signer_ip' "$WG_JSON")
 
-    #interface name (assumption wg0)
     WG_IF="wg0"
 
-    # ensure interface exists
-    if ip link show "$WG_IF" >/dev/null 2>&1; then
-
-        # add/update peer dynamically
-        wg set "$WG_IF" peer "$SIGNER_PUB_KEY" \
-            allowed-ips "${SIGNER_IP%/*}/32"
-
-        echo "Peer applied via wg set"
-    else
-        echo "WARNING: WireGuard interface $WG_IF not found"
-        echo "Falling back to wg-quick reload required"
+    # validate input
+    if [[ -z "$SIGNER_PUB_KEY" || "$SIGNER_PUB_KEY" == "null" ]]; then
+        echo "ERROR: invalid signer_public_key"
+        exit 1
     fi
+    if [[ -z "$SIGNER_IP" || "$SIGNER_IP" == "null" ]]; then
+        echo "ERROR: invalid signer_ip"
+        exit 1
+    fi
+
+    ALLOWED_IP="${SIGNER_IP%/*}/32"
+
+    #interface exists
+    if ! ip link show "$WG_IF" >/dev/null 2>&1; then
+        echo "WireGuard interface $WG_IF missing → creating..."
+
+        ip link add dev "$WG_IF" type wireguard
+        ip link set "$WG_IF" up
+    fi
+
+    #WG Peer (Signer)
+    KEEPALIVE=25
+
+    wg set "$WG_IF" peer "$SIGNER_PUB_KEY" \
+        allowed-ips "$ALLOWED_IP" \
+        persistent-keepalive "$KEEPALIVE"
+    
+    echo "WireGuard peer applied successfully"
 
 else
     echo "Skipping: wireguard.signer.json not found"

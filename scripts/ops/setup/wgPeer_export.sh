@@ -25,14 +25,11 @@ if [[ ! -f "$PRIVATE_KEY" ]]; then
     chmod 644 "$PUBLIC_KEY"
 fi
 
-mkdir -p "$USB_MOUNT/wireguard/wallet"
-cp "$PUBLIC_KEY" \
-   "$USB_MOUNT/wireguard/wallet/public.key"
-
-chmod 644 "$USB_MOUNT/wireguard/wallet/public.key"
+mkdir -p "$USB_MOUNT/communication/wireguard/wallet"
+chmod 644 "$USB_MOUNT/communication/wireguard/wallet/public.key"
 
 echo "Wallet WireGuard public key exported:"
-echo "  $USB_MOUNT/wireguard/wallet/public.key"
+echo "$USB_MOUNT/communication/wireguard/wallet/public.key"
 
 
 
@@ -47,9 +44,7 @@ WALLET_IP="10.10.0.1/24"
 
 SIGNER_PUB_KEY="$(cat "$PUBLIC_KEY")"
 
-WIREGUARD_JSON="$USB_MOUNT/communication/wireguard.wallet.json"
-
-mkdir -p "$USB_MOUNT/communication"
+WIREGUARD_JSON="$USB_MOUNT/wireguard/wallet/wireguard.wallet.json"
 
 cat > "$WIREGUARD_JSON" <<EOF
 {
