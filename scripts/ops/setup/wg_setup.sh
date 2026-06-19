@@ -42,7 +42,7 @@ fi
 PRIVATE_KEY=$(cat "$WG_DIR/private.key")
 
 #VPN subnet IP
-WG_ADDRESS="10.10.0.1/24"
+WG_ADDRESS="10.10.0.1/32"
 WG_PORT="51820"
 
 cat > "$WG_CONF" <<EOF
@@ -50,6 +50,7 @@ cat > "$WG_CONF" <<EOF
 Address = $WG_ADDRESS
 ListenPort = $WG_PORT
 PrivateKey = $PRIVATE_KEY
+SaveConfig = true
 EOF
 
 #kernel forwarding

@@ -4,6 +4,10 @@ set -euo pipefail
 USB_DEVICE="/dev/disk/by-label/USB"
 USB_MOUNT="/mnt/usb"
 
+WG_IF="wg0"
+WG_DIR="/etc/wireguard"
+WG_CONF="$WG_DIR/$WG_IF.conf"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(realpath "${SCRIPT_DIR}/../../..")"
 
@@ -61,7 +65,7 @@ else
 fi
 
 echo ""
-echo "Checking communication files (optional)..."
+echo "Checking communication files ..."
 
 # communication (OPTIONAL)
 #WG
@@ -72,6 +76,7 @@ if [[ -f "$WG_JSON" ]]; then
 
     SIGNER_PUB_KEY=$(jq -r '.signer_public_key' "$WG_JSON")
     SIGNER_IP=$(jq -r '.signer_ip' "$WG_JSON")
+    SIGNER_ENDPOINT=$(jq -r '.endpoint' "$WG_JSON")
 
     WG_IF="wg0"
 
@@ -84,7 +89,10 @@ if [[ -f "$WG_JSON" ]]; then
         echo "ERROR: invalid signer_ip"
         exit 1
     fi
-
+    if [[ -z "$SIGNER_ENDPOINT" || "$SIGNER_ENDPOINT" == "null" ]]; then
+        echo "ERROR: invalid signer_endpoint"
+        exit 1
+    fi
     ALLOWED_IP="${SIGNER_IP%/*}/32"
 
     if [[ -f "$WG_CONF" ]]; then
@@ -102,11 +110,11 @@ if [[ -f "$WG_JSON" ]]; then
 
         # Schreibt den aktuellen Peer-Block ans Ende der Datei
         cat <<EOF >> "$WG_CONF"
-
 [Peer]
 PublicKey = $SIGNER_PUB_KEY
 AllowedIPs = $ALLOWED_IP
 PersistentKeepalive = 25
+Endpoint = $SIGNER_ENDPOINT
 EOF
     else
         echo "WARNING: Configuration file $WG_CONF not found. Could not persist peer."
@@ -114,18 +122,15 @@ EOF
 
     #interface exists
     if ! ip link show "$WG_IF" >/dev/null 2>&1; then
-        echo "WireGuard interface $WG_IF missing → creating..."
+        echo "WireGuard interface $WG_IF missing..."
 
         ip link add dev "$WG_IF" type wireguard
         ip link set "$WG_IF" up
     fi
 
-    #WG Peer (Signer)
-    KEEPALIVE=25
-
-    wg set "$WG_IF" peer "$SIGNER_PUB_KEY" \
-        allowed-ips "$ALLOWED_IP" \
-        persistent-keepalive "$KEEPALIVE"
+    #restart
+    wg-quick down wg0
+    wg-quick up wg0
     
     echo "WireGuard peer applied successfully"
 
@@ -142,7 +147,7 @@ if [[ -f "$USB_MOUNT/communication/signer-hmac.secret" ]]; then
     chmod 600 "$SECRETS_DIR/signer-hmac.secret"
     echo "Imported: signer-hmac.secret"
 else
-    echo "Skipping: signer-hmac.secret (not found)"
+    echo "Skipping: signer-hmac.secret "
 fi
 
 # env.runtime nur erzeugen wenn HMAC existiert
@@ -157,11 +162,11 @@ EOF
     chmod 600 "$ENV_RUNTIME"
     echo "Generated: env.runtime"
 else
-    echo "Skipping env.runtime (no HMAC secret)"
+    echo "Skipping env.runtime"
 fi
 
 echo ""
-echo "Importing wallets (hot/cold optional)..."
+echo "Importing wallets..."
 
 FOUND=0
 
@@ -182,7 +187,7 @@ do
     if [[ "$WALLET_TYPE" == "hot" ]]; then
 
         if [[ ! -f "$WALLET_META" ]]; then
-            echo "Skipping hot (no metadata.json)"
+            echo "Skipping hot"
             continue
         fi
 
@@ -195,7 +200,7 @@ do
         COLD_SIGNER="$WALLET_TYPE_DIR/cold-signer.wsh"
 
         if [[ ! -f "$COLD_SIGNER" ]]; then
-            echo "Skipping cold (no cold-signer.wsh)"
+            echo "Skipping cold"
             continue
         fi
 
@@ -243,7 +248,7 @@ do
 done
 
 if [[ "$FOUND" -eq 0 ]]; then
-    echo "WARNING: no wallets found (hot/cold missing)"
+    echo "WARNING: no wallets found"
 fi
 
 sync

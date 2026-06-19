@@ -38,8 +38,8 @@ fi
 
 
 
-SIGNER_IP="10.10.0.2/24"
-WALLET_IP="10.10.0.1/24"
+SIGNER_IP="10.10.0.2/32"
+WALLET_IP="10.10.0.1/32"
 
 SIGNER_PUB_KEY="$(cat "$PUBLIC_KEY")"
 
@@ -52,8 +52,8 @@ cat > "$WIREGUARD_JSON" <<EOF
   "wallet_ip": "$WALLET_IP",
   "port": $WG_PORT,
   "endpoint": "${SIGNER_ENDPOINT_IP}:${WG_PORT}",
-  "allowed_ips_signer": "$WALLET_IP/24",
-  "allowed_ips_wallet": "$SIGNER_IP/24"
+  "allowed_ips_signer": "$WALLET_IP/32",
+  "allowed_ips_wallet": "$SIGNER_IP/32"
 }
 EOF
 
