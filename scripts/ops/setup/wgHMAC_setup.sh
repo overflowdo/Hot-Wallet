@@ -65,16 +65,6 @@ echo "Checking communication files (optional)..."
 
 # communication (OPTIONAL)
 #WG
-if [[ -f "$USB_MOUNT/communication/wireguard-public.key" ]]; then
-    mkdir -p /etc/wireguard/peers
-    cp "$USB_MOUNT/communication/wireguard-public.key" \
-       "/etc/wireguard/peers/wireguard-public.key"
-    chmod 644 "/etc/wireguard/peers/wireguard-public.key"
-    echo "Imported: wireguard-public.key"
-else
-    echo "Skipping: wireguard-public.key (not found)"
-fi
-
 WG_JSON="$USB_MOUNT/communication/wireguard/wireguard.signer.json"
 
 if [[ -f "$WG_JSON" ]]; then

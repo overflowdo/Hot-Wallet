@@ -12,7 +12,7 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
-if command -v apt >/dev/null 2>&1; then
+if  and -v apt >/dev/null 2>&1; then
     apt update
     apt install -y wireguard wireguard-tools qrencode curl
 
