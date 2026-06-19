@@ -66,10 +66,16 @@ async def add_wallet(metadata: dict = Body(...)):
         metadata.get("descriptor")
     )
 
+    wallet_name = metadata.get("name")
+    if metadata.get("wallet_type") == "cold":
+        wallet_name = "cormorant"
+    else:
+        wallet_name = "keyA"
+
     #Export for tx-builder
     await nc.publish(
         "newWallet.registered",
-        json.dumps({"wallet_id": wallet_id, "desc": metadata["descriptor"]}).encode()
+        json.dumps({"wallet_id": wallet_id, "desc": metadata["descriptor"], "name": wallet_name}).encode()
     )
 
     return {
