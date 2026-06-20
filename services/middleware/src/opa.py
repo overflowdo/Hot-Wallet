@@ -1,14 +1,23 @@
 import os
 import httpx
 import asyncio
+import logging
 
 from .db import insert_psbt, psbt_created_seen, insert_opa_decision
 
 OPA_URL = os.getenv("OPA_URL", "http://opa:8181")
+log = logging.getLogger("middleware")
 
 
 async def evaluate_hot_intent(intent: dict) -> dict:
     payload = {"input": to_opa_input(intent)}
+
+    log.info(
+        "sending to OPA",
+        extra={
+            "payload": payload
+        }
+    )
 
     async with httpx.AsyncClient(timeout=3.0) as client:
         resp = await client.post(

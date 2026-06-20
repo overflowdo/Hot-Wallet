@@ -96,20 +96,22 @@ if [[ -f "$WG_JSON" ]]; then
     ALLOWED_IP="${SIGNER_IP%/*}/32"
 
     if [[ -f "$WG_CONF" ]]; then
-        if grep -q "$SIGNER_PUB_KEY" "$WG_CONF"; then
-            echo "Peer already exists. Overwriting peer configuration in $WG_CONF..."
-            
-            # Entfernt den alten [Peer]-Block, der diesen Public Key enthält, bis zum nächsten Block oder Dateiende
-            sed -i "/\[Peer\]/,/^\s*$/{/$SIGNER_PUB_KEY/d; d;}" "$WG_CONF"
-            
-            # Bereinigt eventuell entstandene doppelte Leerzeilen am Dateiende
-            sed -i -e :a -e '/^\n*$/{$d;N;ba' -e '}' "$WG_CONF"
-        else
-            echo "Writing new peer to $WG_CONF..."
-        fi
+        echo "Writing new peer to $WG_CONF..."
+
+        #VPN subnet IP
+        WG_ADDRESS="10.10.0.1/32"
+        WG_PORT="51820"
+
+        PRIVATE_KEY=$(cat "$WG_DIR/private.key")
 
         # Schreibt den aktuellen Peer-Block ans Ende der Datei
         cat <<EOF >> "$WG_CONF"
+[Interface]
+Address = $WG_ADDRESS
+ListenPort = $WG_PORT
+PrivateKey = $PRIVATE_KEY
+SaveConfig = true
+
 [Peer]
 PublicKey = $SIGNER_PUB_KEY
 AllowedIPs = $ALLOWED_IP
@@ -129,8 +131,10 @@ EOF
     fi
 
     #restart
-    wg-quick down wg0
-    wg-quick up wg0
+
+    wg-quick down "$WG_IF" >/dev/null 2>&1 || true
+
+    wg-quick up "$WG_IF"
     
     echo "WireGuard peer applied successfully"
 

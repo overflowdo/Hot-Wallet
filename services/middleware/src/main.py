@@ -3,6 +3,7 @@ import json
 from fastapi import Body, FastAPI, HTTPException
 import asyncio
 from nats.aio.client import Client as NATS
+import logging
 
 
 from .opa import handle_intent
@@ -17,6 +18,7 @@ from .db import (
 
 nc = None
 app = FastAPI()
+log = logging.getLogger("middleware")
 
 BITCOIN_NETWORK = os.getenv("BITCOIN_NETWORK", "regtest")
 POLICY_SIGNER_URL = os.getenv("POLICY_SIGNER_URL", "http://policy-signer:8080")
@@ -64,6 +66,19 @@ async def add_wallet(metadata: dict = Body(...)):
         metadata.get("derivation_path", ""),
         metadata.get("master_fingerprint", ""),
         metadata.get("descriptor")
+    )
+
+    log.info(
+        "Wallet imported",
+        extra={
+            "wallet_id": wallet_id,
+            "wallet_type": metadata.get("wallet_type") or "external",
+            "network": metadata.get("network"),
+            "xpub ": metadata.get("xpub",""),
+            "derivation_path": metadata.get("derivation_path", ""),
+            "master_finderprint": metadata.get("master_fingerprint", ""),
+            "descriptor": metadata.get("descriptor")
+        }
     )
 
     wallet_name = metadata.get("name")
