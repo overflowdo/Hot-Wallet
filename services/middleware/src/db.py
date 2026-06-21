@@ -138,7 +138,7 @@ def create_wallet(
 
         c.commit()
 
-def upsert_psbt_artifact():
+def archive_psbt():
     return
 
 
@@ -172,51 +172,6 @@ def insert_psbt(psbt: dict):
             ))
         c.commit()
 
-
-#Abfrage von tx-builder
-def get_spendable_utxos(wallet_id: str):
-    return fetch_all("""
-        SELECT
-            *
-        FROM btc.utxos
-        WHERE 
-                spent = false
-            AND wallet_id = %s
-    """, (wallet_id,))
-
-
-#Nach jedem tx-broadcast
-def update_spendable_utxos(txid: str, inputs: list, outputs: list, height: int):
-    with conn() as c:
-        with c.cursor() as cur:
-            # 1. mark inputs as spent
-            for inp in inputs:
-                cur.execute("""
-                    UPDATE btc.utxos
-                    SET spent = true,
-                        spent_by_txid = %s,
-                        spent_height = %s,
-                        updated_utc = now()
-                    WHERE txid = %s AND vout = %s
-                """, (txid, height, inp["txid"], inp["vout"]))
-
-            # 2. insert outputs
-            for idx, out in enumerate(outputs):
-                cur.execute("""
-                    INSERT INTO btc.utxos (
-                        txid, vout, value_sats, script_pubkey_hex,
-                        height, confirmed, spent
-                    )
-                    VALUES (%s, %s, %s, %s, %s, false, false)
-                    ON CONFLICT DO NOTHING
-                """, (
-                    txid,
-                    idx,
-                    out["value"],
-                    out["script"],
-                    height
-                ))
-        c.commit()
 
 
 def insert_opa_decision(

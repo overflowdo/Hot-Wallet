@@ -4,6 +4,9 @@ import asyncio
 import logging
 
 from .db import insert_psbt, psbt_created_seen, insert_opa_decision
+SERVICE_NAME = os.getenv("SERVICE_NAME", "middleware")
+log = logging.getLogger(SERVICE_NAME)
+
 
 OPA_URL = os.getenv("OPA_URL", "http://opa:8181")
 log = logging.getLogger("middleware")

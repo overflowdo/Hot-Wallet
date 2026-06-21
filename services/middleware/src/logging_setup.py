@@ -1,7 +1,5 @@
-#Logger for Loki
-
-import loggingjsonlogger 
-import jsonlogger
+import logging
+from pythonjsonlogger import jsonlogger
 
 class ContextFilter(logging.Filter):
     def __init__(self, service: str):

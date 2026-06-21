@@ -10,19 +10,22 @@ from .opa import handle_intent
 from .broadcast import broadcast_to_bitcoind
 from .signer import sign_psbt
 from .txBuilder import handle_psbt_created, handle_psbt_failed
+from .logging_setup import setup_logging
 from .db import (
     create_wallet,
-    get_desc
+    get_desc,
+    archive_psbt
 )
 
-
-nc = None
-app = FastAPI()
-log = logging.getLogger("middleware")
 
 BITCOIN_NETWORK = os.getenv("BITCOIN_NETWORK", "regtest")
 POLICY_SIGNER_URL = os.getenv("POLICY_SIGNER_URL", "http://policy-signer:8080")
 
+SERVICE_NAME = os.getenv("SERVICE_NAME", "middleware")
+log = logging.getLogger(SERVICE_NAME)
+
+nc = None
+app = FastAPI()
 
 
 
@@ -108,6 +111,8 @@ async def startup():
     nc = NATS()
     await nc.connect(servers=[os.getenv("NATS_URL")])
 
+    setup_logging(SERVICE_NAME)
+
     
     #Init
     #Weiterleitung zu OPA
@@ -161,6 +166,19 @@ async def startup():
                 txid = await broadcast_to_bitcoind(rawtx_hex)
 
                 # to add logging
+                await asyncio.to_thread(
+                    archive_psbt, {
+                        "id": psbt.get("id"),
+                        "type": psbt.get("type"),
+                        "state": "SIGNING_FAILED",        
+                        "amount_sats": psbt.get("amount_sats"),
+                        "source_address": psbt.get("source_address"),
+                        "target_address": psbt.get("target_address"),
+                        "meta": {},
+                        "error_code": ""
+                    }
+                )
+                log.info("Broadcast completed")
 
             elif psbt.get("type") == "refill":
                 #Notify Human via ntfy for start of manual proess
@@ -183,3 +201,10 @@ async def startup():
         "psbt.failed",
         cb=psbt_failed_handler
     )    
+
+@app.on_event("shutdown")
+async def shutdown():
+    global nc
+    if nc:
+        await nc.drain()
+    log.info(SERVICE_NAME)

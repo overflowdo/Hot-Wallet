@@ -104,13 +104,13 @@ if [[ -f "$WG_JSON" ]]; then
 
         PRIVATE_KEY=$(cat "$WG_DIR/private.key")
 
-        # Schreibt den aktuellen Peer-Block ans Ende der Datei
-        cat <<EOF >> "$WG_CONF"
+        #Überschreiben der Datei
+        cat <<EOF > "$WG_CONF"
 [Interface]
 Address = $WG_ADDRESS
 ListenPort = $WG_PORT
 PrivateKey = $PRIVATE_KEY
-SaveConfig = true
+SaveConfig = false
 
 [Peer]
 PublicKey = $SIGNER_PUB_KEY

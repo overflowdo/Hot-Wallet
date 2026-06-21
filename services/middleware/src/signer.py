@@ -11,9 +11,13 @@ import time
 
 from .db import insert_psbt, upsert_psbt_artifact
 
+
+
 SIGNER_URL = os.getenv("SIGNER_URL")
 SIGNER_PORT = os.getenv("SIGNER_PORT")
 SIGNER_HMAC_SECRET = os.getenv("SIGNER_HMAC_SECRET")
+SERVICE_NAME = os.getenv("SERVICE_NAME", "middleware")
+log = logging.getLogger(SERVICE_NAME)
 
 if not SIGNER_URL:
     raise RuntimeError("SIGNER_URL is not set")
@@ -53,7 +57,7 @@ async def sign_psbt(psbt: dict) -> dict:
         log.info(f"Ein Fehler ist aufgetreten: {e}")
         return
     
-    #Bei sign file ohne error
+    #Bei sign ohne direkten error
     if signed is None:
         await asyncio.to_thread(
             insert_psbt, {
@@ -74,7 +78,7 @@ async def sign_psbt(psbt: dict) -> dict:
         insert_psbt, {
             "id": psbt.get("id"),
             "type": psbt.get("type"),
-            "state": "PSBT_SIGNED",        
+            "state": "SIGNED",        
             "amount_sats": psbt.get("amount_sats"),
             "source_address": psbt.get("source_address"),
             "target_address": psbt.get("target_address"),
@@ -84,14 +88,14 @@ async def sign_psbt(psbt: dict) -> dict:
     )
 
     # store signed PSBT artifact
-    await asyncio.to_thread(
-        upsert_psbt_artifact,
-        psbt.get("id"),
-        "signed",
-        psbt.get("signed_psbt_ref"),
-        psbt.get("sha256"),
-        None
-    )
+    #await asyncio.to_thread(
+     #   inser_psbt_artifact,
+      #  psbt.get("id"),
+       # "signed",
+        #psbt.get("signed_psbt_ref"),
+        #psbt.get("sha256"),
+        #None
+    #)
     return signed
         
     

@@ -1,8 +1,10 @@
 import asyncio
 import logging
+import os
 
 from .db import insert_psbt
-log = logging.getLogger("middleware")
+SERVICE_NAME = os.getenv("SERVICE_NAME", "middleware")
+log = logging.getLogger(SERVICE_NAME)
 
 # Nach OPA senden zu Tx-builder (forwarding in middleware nc subscribe (oben))
 #Nach Tx-builder, WENN FEHLSCHLUG

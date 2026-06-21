@@ -47,6 +47,11 @@ services:
       SIGNER_PORT: 8080
       DATABASE_URL: postgresql://user:pass@postgres:5432/btc
 
+      BITCOIN_NETWORK: regtest
+      BITCOIND_RPC_URL: http://192.168.99.58:18443
+      BITCOIND_RPC_USER: user
+      BITCOIND_RPC_PASS: pass
+
       SIGNER_HMAC_SECRET: /run/secrets/signer-hmac.secret
     depends_on:
       - nats
