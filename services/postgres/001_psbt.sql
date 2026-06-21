@@ -8,7 +8,7 @@ CREATE SCHEMA IF NOT EXISTS btc;
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'psbt_type') THEN
-    CREATE TYPE btc.psbt_type AS ENUM ('hot-tx', 'refill');
+    CREATE TYPE btc.psbt_type AS ENUM ('hot', 'cold');
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'psbt_state') THEN
@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS btc.wallet (
 -- -----------------------------
 CREATE TABLE IF NOT EXISTS btc.psbt (
   id               bigserial PRIMARY KEY,
-  psbt_id          TEXT NOT NULL,
+  psbt_id          TEXT NOT NULL UNIQUE,
   psbt_type        btc.psbt_type NOT NULL,
   psbt_state       btc.psbt_state NOT NULL DEFAULT 'INTENT_CREATED',
   network          TEXT NOT NULL DEFAULT 'regtest',

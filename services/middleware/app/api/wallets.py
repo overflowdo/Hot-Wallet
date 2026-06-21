@@ -1,0 +1,73 @@
+import asyncio
+import os
+import logging
+import json
+from fastapi import APIRouter, Body, request, HTTPException
+from .db import create_wallet
+
+router = APIRouter()
+
+SERVICE_NAME = os.getenv("SERVICE_NAME", "middleware")
+log = logging.getLogger(SERVICE_NAME)
+
+nc = None
+
+
+#Genutzt von wgHMAC.sh
+#Laden von cold und hot-wallet in die DB
+#To Do ZMQ listening service für UTXO changes
+@router.post("/api/v1/importWallet")
+async def add_wallet(metadata: dict = Body(...)):
+    nc = request.app.state.nc
+
+    required_fields = ["wallet_type", "network", "xpub"]
+
+    missing = [f for f in required_fields if f not in metadata]
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Missing fields: {missing}"
+        )
+
+    wallet_id = metadata.get("wallet_id") or metadata["wallet_type"][:12] or metadata["xpub"][:12]
+
+    await asyncio.to_thread(
+        create_wallet,
+        wallet_id,
+        metadata.get("wallet_type") or "external",
+        metadata.get("network"),
+        metadata.get("xpub",""),
+        metadata.get("derivation_path", ""),
+        metadata.get("master_fingerprint", ""),
+        metadata.get("descriptor")
+    )
+
+    log.info(
+        "Wallet imported",
+        extra={
+            "wallet_id": wallet_id,
+            "wallet_type": metadata.get("wallet_type") or "external",
+            "network": metadata.get("network"),
+            "xpub ": metadata.get("xpub",""),
+            "derivation_path": metadata.get("derivation_path", ""),
+            "master_finderprint": metadata.get("master_fingerprint", ""),
+            "descriptor": metadata.get("descriptor")
+        }
+    )
+
+    wallet_name = metadata.get("name")
+    if metadata.get("wallet_type") == "cold":
+        wallet_name = "cormorant"
+    else:
+        wallet_name = "keyA"
+
+    #Export for tx-builder
+    await nc.publish(
+        "newWallet.registered",
+        json.dumps({"wallet_id": wallet_id, "desc": metadata["descriptor"], "name": wallet_name}).encode()
+    )
+
+    return {
+        "success": True,
+        "wallet_id": wallet_id,
+    }

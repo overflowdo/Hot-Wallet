@@ -7,3 +7,4 @@ embit==0.8.0
 python-json-logger==2.0.7
 prometheus_client==0.16.0
 python-multipart==0.0.9
+requests
