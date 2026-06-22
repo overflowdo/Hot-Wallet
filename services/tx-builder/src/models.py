@@ -1,5 +1,7 @@
 from pydantic import BaseModel
 from typing import Optional, Dict, Literal, Any
+from typing import Union
+import json
 
 
 class PSBTModel(BaseModel):
@@ -29,11 +31,6 @@ class PSBTModel(BaseModel):
     # extensibility
     meta: Dict[str, Any] = {}
     error_code: Dict[str, Any] = {}
-
-from typing import Union
-import json
-
-from app.models.psbtModel import PSBTModel
 
 
 def normalize_psbt(msg: Union[bytes, str, dict, PSBTModel]) -> PSBTModel:

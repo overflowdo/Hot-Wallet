@@ -1,5 +1,7 @@
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Literal,Any
+from typing import Union
+import json
 from uuid import uuid4 
 from .db import psbt_id_exists
 import asyncio
@@ -80,10 +82,7 @@ class PSBTModel(BaseModel):
     meta: Dict[str, Any] = {}
     error_code: Dict[str, Any] = {}
 
-from typing import Union
-import json
 
-from app.models.psbtModel import PSBTModel
 
 
 def normalize_psbt(msg: Union[bytes, str, dict, PSBTModel]) -> PSBTModel:

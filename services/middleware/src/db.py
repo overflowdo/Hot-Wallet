@@ -3,8 +3,6 @@ import json
 import psycopg
 from psycopg.rows import dict_row
 
-from .models import PSBTModel
-
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 
 def conn():
@@ -133,7 +131,7 @@ def archive_psbt():
 
 
 #State logging für psbts (unterscheidung zu intent möglcih, aber unnötig kompliziert)
-def insert_psbt(psbt: PSBTModel):
+def insert_psbt(psbt: dict):
     with conn() as c:
         with c.cursor() as cur:
             cur.execute("""
