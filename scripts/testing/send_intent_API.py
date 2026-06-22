@@ -58,13 +58,26 @@ def test_psbt(wallet_name_target: str, wallet_name_source: str):
     target_address = rpc_res_w2["result"]
     print(f" Zieladresse (wallet2): {target_address}")
 
-    # 2. Direkt ein befülltes (funded) PSBT von wallet1 erstellen
-    # Parameter 1: [] -> Automatische UTXO-Auswahl
-    # Parameter 2: [{adresse: betrag}] -> Die Ausgaben (Outputs)
     outputs = [{target_address: 0.12}]
     
-    # Optionaler Parameter 3 (Locktime) & Parameter 4 (Options wie changeable/fee_rate) lassen wir weg
-    funded_res = rpc_call(f"{RPC_URL}/wallet/{wallet_name_source}", "createfundedpsbt", [[], outputs])
+    funded_res = rpc_call(
+        f"{RPC_URL}/wallet/{wallet_name_source}",
+        "walletcreatefundedpsbt",
+        [
+            [],              # inputs: auto coin selection
+            outputs,         # outputs
+            lockTime,        #für smart contracts
+            {
+                "add_inputs": True,
+                #"fee_rate": "1.2",             fee rate nicht direkt angeben. BTC CORE überlassen + OPA kontrolle
+                "conf_target": 6,               #confirmation in ungefähr einer stunde (fee für 6 blöcke finden)
+                "includeWatching": True,
+                "replaceable": True,            #Start mit low fee. bei zu langem warten erhöhen ermöglichen
+                "estimate_mode": "conservative" #Sicherer
+            },
+            True            #bip32derivs 
+        ]
+    )
     
     final_psbt_base64 = funded_res["result"]["psbt"]
     print(f" PSBT via 'createfundedpsbt' generiert.")

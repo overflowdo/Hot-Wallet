@@ -13,7 +13,7 @@ from embit.networks import NETWORKS
 class PaymentIntent(BaseModel):
     id: str
 
-    type: Literal["payment_intent"] = "payment_intent"
+    type: Literal["hot-tx", "refill"]
 
     rail: Literal["bip21", "psbt"]
 
@@ -32,7 +32,8 @@ class PaymentIntent(BaseModel):
 
 async def create_paymentIntent(
     *,
-    intent_id: str | None = None,
+    id: str | None = None,
+    type: str,
     rail: str,
     network: str,
     amount_sats: int | None = None,
@@ -42,7 +43,8 @@ async def create_paymentIntent(
         
 
     return PaymentIntent(
-        id=intent_id,
+        id=id,
+        type=type,
         rail=rail,
         network=network,
         amount_sats=amount_sats,
@@ -57,7 +59,8 @@ async def create_paymentIntent_msg(
     data = json.loads(msg)
 
     return await create_paymentIntent(
-        intent_id=data.get("id"),
+        id=data.get("id"),
+        type=data.get("type")
         rail=data["rail"],
         network=data.get("network", "regtest"),
         amount_sats=data.get("amount_sats"),
@@ -127,6 +130,7 @@ async def create_psbt(
         sha256 = hashlib.sha256(psbt.encode()).hexdigest()
 
     meta = meta or {}
+    error_code = error_code or {}
 
     if rail is not None:
         meta["rail"] = rail
@@ -153,17 +157,17 @@ async def create_psbt_msg(msg) -> PSBTModel:
 
     return await create_psbt(
         psbt_id=data.get("psbt_id"),
-        wallet_type=data["wallet_type"],
-        psbt=data["psbt"],
+        wallet_type=data.get("wallet_type"),
+        psbt=data.get("psbt"),
         network=data.get("network", "regtest"),
         amount_sats=data.get("amount_sats"),
-        info_sats=data.get("info_sats"),
+        fee_sats=data.get("fee_sats"),
         fee_rate=data.get("fee_rate"),
         changepos=data.get("changepos"),
         target_address=data.get("target_address"),
         source_address=data.get("source_address"),
         sha256=data.get("sha256"),
-        state=data["state"],
+        state=data.get("state"),
         meta=data.get("meta"),
         error_code=data.get("error_code"),
     )

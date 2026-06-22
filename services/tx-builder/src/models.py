@@ -26,21 +26,24 @@ class PaymentIntent(BaseModel):
 
 async def create_paymentIntent(
     *,
-    intent_id: str | None = None,
+    id: str,
+    type: str,
     rail: str,
     network: str,
-    amount_sats: int | None = None,
-    target_address: str | None = None,
+    amount_sats: int,
+    target_address: str,
+    source_address: str,
     meta: dict | None = None,
 ) -> PaymentIntent:
         
 
     return PaymentIntent(
-        id=intent_id,
+        id=id,
+        type=type,
         rail=rail,
         network=network,
         amount_sats=amount_sats,
-        source_address="hot",
+        source_address=source_address,
         target_address=target_address,
         meta=meta
     )
@@ -51,10 +54,12 @@ async def create_paymentIntent_msg(
     data = json.loads(msg)
 
     return await create_paymentIntent(
-        intent_id=data.get("intent_id"),
+        id=data.get("id"),
+        type=data.get("type"),
         rail=data["rail"],
         network=data.get("network", "regtest"),
         amount_sats=data.get("amount_sats"),
+        source_address=data.get("source_address"),
         target_address=data.get("target_address"),
         meta=data.get("meta"),
     )

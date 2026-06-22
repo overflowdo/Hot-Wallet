@@ -63,7 +63,8 @@ async def request_bip21(request: Request, payload: dict = Body(...)):
             break
 
     intent = await create_paymentIntent(
-        intent_id=intent_id,
+        id=intent_id,
+        type="hot-tx",
         rail="bip21",
         network=BITCOIN_NETWORK,
         amount_sats=amount_sats,
@@ -119,9 +120,9 @@ async def request_psbt(request: Request, payload: dict = Body(...)):
         psbt_id=psbt_id,
         wallet_type="hot",
         psbt=psbt,
-        rail="psbt",
+        meta={"rail": "psbt"},
         network=BITCOIN_NETWORK,
-        source_address="hot",
+        source_address="keyA",
         sha256=payload.get("sha256"),
         state="PSBT_CREATED",
     )

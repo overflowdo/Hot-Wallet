@@ -81,9 +81,10 @@ async def handle_intent_build(msg):
     if not nc or not nc.is_connected:
         log.error("nats_not_initialized")
         return
+    
+    intent = await create_paymentIntent_msg()
 
     try:
-        intent = create_paymentIntent_msg(msg.data.decode())
         if not intent.psbt_id:
             return
 
@@ -127,13 +128,13 @@ async def handle_intent_build(msg):
             )
 
     except Exception as e:
-        psbt.meta = psbt.meta = psbt.meta | {"message": str(e)} | {"created_utc": utc_now_iso()}
+        intent.meta = intent.meta | {"message": str(e)} | {"created_utc": utc_now_iso()}
 
-        log.error("intent_handler_failed", extra={"service": SERVICE_NAME, "intent_id": intent.get("id"),"status": "intent_handler_failed", "error_code": "INTERNAL_ERROR", "context": {"message": str(e)},"created_utc": utc_now_iso()})
+        log.error("intent_handler_failed", extra={"service": SERVICE_NAME, "intent_id": intent.id,"status": "intent_handler_failed", "error_code": "INTERNAL_ERROR", "context": {"message": str(e)},"created_utc": utc_now_iso()})
         if nc:
             await nc.publish(
                 "psbt.failed",
-                psbt.model_dump_json().encode()
+                intent.model_dump_json().encode()
             )
 
   
@@ -251,12 +252,12 @@ async def build_psbt_for_intent(intent: PaymentIntent) -> PSBTModel:
 
 async def handle_newWallet(msg):
     wallet = json.loads(msg.data.decode("utf-8"))
-    if wallet["wallet_id"] == "hot":
+    if wallet["wallet_type"] == "hot":
         global HOT_WALLET_DESC
         HOT_WALLET_DESC = wallet["desc"]
         global HOT_WALLET_NAME
         HOT_WALLET_NAME = wallet["name"]
-    elif wallet["wallet_id"] == "cold": 
+    elif wallet["wallet_type"] == "cold": 
         global COLD_WALLET_DESC
         COLD_WALLET_DESC = wallet["desc"]
         global COLD_WALLET_NAME

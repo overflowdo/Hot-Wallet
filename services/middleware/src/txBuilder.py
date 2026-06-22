@@ -17,7 +17,7 @@ async def handle_psbt_failed(psbt: PSBTModel):
     log.info(
         "PSBT build failed",
         extra={
-            "id": psbt.id,
+            "id": psbt.psbt_id,
             "type": psbt.wallet_type,
             "state": "PSBT_FAILED",        
             "amount_sats": psbt.amount_sats,
@@ -28,7 +28,7 @@ async def handle_psbt_failed(psbt: PSBTModel):
         }
     )
 
-    psbt["state"] = "PSBT_FAILED"
+    psbt.state = "PSBT_FAILED"
     await asyncio.to_thread(
         insert_psbt, psbt
     )
@@ -40,7 +40,7 @@ async def handle_psbt_created(psbt: PSBTModel):
     log.info(
         "PSBT build success",
         extra={
-            "id": psbt.id,
+            "id": psbt.psbt_id,
             "type": psbt.wallet_type,
             "state": "PSBT_CREATED",        
             "amount_sats": psbt.amount_sats,
@@ -50,7 +50,7 @@ async def handle_psbt_created(psbt: PSBTModel):
             "error_code": psbt.error_code
         }
     )
-    psbt["state"] = "PSBT_CREATED"
+    psbt.state = "PSBT_CREATED"
     await asyncio.to_thread(
         insert_psbt, psbt
     )

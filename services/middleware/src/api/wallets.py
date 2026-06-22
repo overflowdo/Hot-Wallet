@@ -28,8 +28,13 @@ async def add_wallet(request: Request, metadata: dict = Body(...)):
             status_code=400,
             detail=f"Missing fields: {missing}"
         )
+    wallet_name = ""
+    if metadata.get("wallet_type") == "cold":
+        wallet_name = metadata.get("name") or "cormorant"
+    else:
+        wallet_name = metadata.get("name") or "keyA"
 
-    wallet_id = metadata.get("wallet_id") or metadata["wallet_type"][:12] or metadata["xpub"][:12]
+    wallet_id = metadata.get("wallet_id") or wallet_name or metadata["wallet_type"][:12] or metadata["xpub"][:12]
 
     await asyncio.to_thread(
         create_wallet,
@@ -55,16 +60,10 @@ async def add_wallet(request: Request, metadata: dict = Body(...)):
         }
     )
 
-    wallet_name = metadata.get("name")
-    if metadata.get("wallet_type") == "cold":
-        wallet_name = "cormorant"
-    else:
-        wallet_name = "keyA"
-
     #Export for tx-builder
     await nc.publish(
         "newWallet.registered",
-        json.dumps({"wallet_id": wallet_id, "desc": metadata["descriptor"], "name": wallet_name}).encode()
+        json.dumps({"wallet_id": wallet_id, "wallet_type": metadata.get("wallet_type"), "desc": metadata["descriptor"], "name": wallet_name}).encode()
     )
 
     return {

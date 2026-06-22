@@ -40,7 +40,7 @@ async def sign_psbt(psbt: PSBTModel) -> PSBTModel:
             psbt.wallet_type
         )
     except Exception as e:
-        psbt["state"] = "SIGNING_FAILED"
+        psbt.state = "SIGNING_FAILED"
         await asyncio.to_thread(
             insert_psbt, psbt
         )
@@ -49,14 +49,14 @@ async def sign_psbt(psbt: PSBTModel) -> PSBTModel:
     
     #Bei sign ohne direkten error
     if signed is None:
-        psbt["state"] = "SIGNING_FAILED"
+        psbt.state = "SIGNING_FAILED"
         await asyncio.to_thread(
             insert_psbt, psbt
         )
         return signed
     
     #Nach erfolgreichen Signieren
-    psbt["state"] = "SIGNED"
+    psbt.state = "SIGNED"
     await asyncio.to_thread(
         insert_psbt, psbt
     )
