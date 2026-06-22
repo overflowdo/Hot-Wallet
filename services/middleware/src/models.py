@@ -7,13 +7,15 @@ from .db import psbt_id_exists
 import asyncio
 import hashlib
 
+from .txBuilder import extr_psbtInfo
+
 
 class PaymentIntent(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4())) #praktisch keine Kollision mit 2^122 werden
 
     type: Literal["payment_intent"] = "payment_intent"
 
-    rail: Literal["bip21", "bolt11", "psbt"]
+    rail: Literal["bip21", "psbt"]
 
     network: str
 
@@ -55,6 +57,20 @@ async def create_paymentIntent(
         meta=meta
     )
 
+async def create_paymentIntent_msg(
+    msg,
+) -> PaymentIntent:
+    data = json.loads(msg)
+
+    return await create_paymentIntent(
+        intent_id=data.get("intent_id"),
+        rail=data["rail"],
+        network=data.get("network", "regtest"),
+        amount_sats=data.get("amount_sats"),
+        target_address=data.get("target_address"),
+        meta=data.get("meta"),
+    )
+
 
 
 class PSBTModel(BaseModel):
@@ -82,22 +98,35 @@ class PSBTModel(BaseModel):
     state: str
 
     # extensibility
-    meta: Dict[str, Any] = {}
-    error_code: Dict[str, Any] = {}
+    meta: dict[str, Any] = Field(default_factory=dict)
+    error_code: dict[str, Any] = Field(default_factory=dict)
 
 async def create_psbt(
     *,
     psbt_id: str | None = None,
+    wallet_type: str,
     psbt: str,
     rail: str | None = None,
     network: str,
     amount_sats: int | None = None,
+    fee_sats: int | None = None,
+    fee_rate: int | None = None,
+    changepos: int | None = None,
     target_address: str | None = None,
+    source_address: str | None = None,
     sha256: str | None = None,
     state: str,
     meta: dict | None = None,
-    error_code: dict | None = None
+    error_code: dict | None = None,
 ) -> PSBTModel:
+    
+    info = extr_psbtInfo(psbt, network)
+    amount_sats = amount_sats or info.get("amount_sats")
+    fee_sats = fee_sats or info.get("fee_sats")
+    fee_rate = fee_rate or info.get("fee_rate")
+    changepos = changepos or info.get("changepos")
+    target_address = target_address or info.get("target_address")
+
     if psbt_id is None:
         while True:
             psbt_id = str(uuid4())
@@ -115,33 +144,37 @@ async def create_psbt(
 
     return PSBTModel(
         psbt_id=psbt_id,
+        wallet_type=wallet_type,
         psbt=psbt,
         network=network,
         amount_sats=amount_sats,
+        fee_sats = fee_sats,
+        fee_rate = fee_rate,
+        changepos = changepos,
         target_address=target_address,
-        source_address="hot",
+        source_address=source_address,
         sha256=sha256,
         state=state,
         meta=meta,
         error_code=error_code
     )
 
-def normalize_psbt(msg: Union[bytes, str, dict, PSBTModel]) -> PSBTModel:
+async def create_psbt_msg(msg) -> PSBTModel:
+    data = json.loads(msg)
 
-    # already psbtModel
-    if isinstance(msg, PSBTModel):
-        return msg
-
-
-    #NATS raw bytes
-    if isinstance(msg, (bytes, str)):
-        data = json.loads(msg.decode() if isinstance(msg, bytes) else msg)
-        return PSBTModel(**data)
-
-
-    # dict input
-    if isinstance(msg, dict):
-        return PSBTModel(**msg)
-
-    raise TypeError(f"Unsupported PSBT format: {type(msg)}")
-    
+    return await create_psbt(
+        psbt_id=data.get("psbt_id"),
+        wallet_type=data["wallet_type"],
+        psbt=data["psbt"],
+        network=data.get("network", "regtest"),
+        amount_sats=data.get("amount_sats"),
+        info_sats=data.get("info_sats"),
+        fee_rate=data.get("fee_rate"),
+        changepos=data.get("changepos"),
+        target_address=data.get("target_address"),
+        source_address=data.get("source_address"),
+        sha256=data.get("sha256"),
+        state=data["state"],
+        meta=data.get("meta"),
+        error_code=data.get("error_code"),
+    )

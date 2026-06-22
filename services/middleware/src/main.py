@@ -11,7 +11,7 @@ from .api.btc_core import broadcast_to_bitcoind
 from .signer import sign_psbt
 from .txBuilder import handle_psbt_created, handle_psbt_failed
 from .logging_setup import setup_logging
-from .models import PSBTModel, normalize_psbt
+from .models import create_psbt, create_psbt_msg, create_paymentIntent_msg
 from src.api import payments, wallets, health 
 from .db import archive_psbt, psbt_created_seen, insert_psbt
 
@@ -49,76 +49,55 @@ async def startup():
 
     
     #Init
-    #Weiterleitung zu OPA
+    #Weiterleitung zu TX-builder
     async def intent_created_handler(msg):
-        intent = json.loads(msg.data.decode())
+        intent = create_paymentIntent_msg(msg.data.decode())
 
         rail = intent.get("rail")
         log.info(f"intent received: {intent.get('id')} rail={rail}")
 
-        #Deduplication of Tx because of race conditions check (only when id send by vendor. wenn selsbtvergeben immer unique)
-        if await asyncio.to_thread(psbt_created_seen, psbt.get("id"), "INTENT_CREATED"):
+        #Deduplication of Tx (only when id send by vendor. wenn selsbtvergeben immer unique)
+        if await asyncio.to_thread(psbt_created_seen, intent.get("id"), "INTENT_CREATED"):
             log.info(f"Already seen: {intent.get('id')} rail={rail}")
             return
             
 
         if rail == "bip21":
-                psbt = PSBTModel(
-                    psbt_id=intent["id"],
-                    wallet_type="hot",
-                    psbt="",                                    #nach tx-builder
-                    network=intent.get("network", "regtest"),
-                    source_address="keyA",
-                    target_address=intent.get("target_address"),
-                    amount_sats=intent.get("amount_sats"),
-                    fee_sats=None,
-                    fee_rate=None,
-                    changepos=None,
-                    state="INTENT_CREATED",
-                    meta={
-                        "rail": "bip21",
-                    },
-                    error_code={}
-                )
-
-                await asyncio.to_thread(
-                    insert_psbt,{
-                        psbt
-                    }
-                )
-
-                await nc.publish(
-                    "psbt.build.requested",
-                    psbt.model_dump_json().encode()
-                )
-
-        elif rail == "psbt":
-            psbt = PSBTModel(
+            psbt = create_psbt(
                 psbt_id=intent["id"],
                 wallet_type="hot",
-                psbt=intent.get("psbt"),
+                psbt="",                                    #nach tx-builder
                 network=intent.get("network", "regtest"),
-                source_address=intent.get("source_address"),
+                source_address="keyA",
                 target_address=intent.get("target_address"),
                 amount_sats=intent.get("amount_sats"),
                 fee_sats=None,
                 fee_rate=None,
                 changepos=None,
-                state="PSBT_CREATED",           
+                state="INTENT_CREATED",
                 meta={
-                    "rail": "bip21"
+                    "rail": rail,
                 },
                 error_code={}
             )
 
-            
+            await asyncio.to_thread(
+                insert_psbt,{
+                    psbt
+                }
+            )
 
-            psbt_created_handler
+            await nc.publish(
+                "psbt.build.requested",
+                psbt.model_dump_json().encode()
+            )
         
         elif rail == "manual":
             print("help")
+
         elif rail == "refill":
             print("help")
+
         else:
             log.error(f"unknown rail: {rail}")
 
@@ -135,14 +114,12 @@ async def startup():
     #Erfolgreich
     #Weiterleitung zu Signer
     async def psbt_created_handler(msg):
-        psbt = normalize_psbt(msg.data) if hasattr(msg, "data") else normalize_psbt(msg)
-        # auf variablen typ achten. 2 verschiedene arrival methoden
+        psbt = create_psbt_msg(msg.data.decode())
 
         #Inkludiert nur logging
         handle_psbt_created(psbt)
 
         if opa_evaluate(psbt):
-
             #refill und hot-tx müssen gesigned werden
             #Weiterleitung zum Signer
             signed = await sign_psbt(psbt)
@@ -159,19 +136,12 @@ async def startup():
                     # to add logging
                     await asyncio.to_thread(
                         archive_psbt, {
-                            "id": psbt.get("id"),
-                            "type": psbt.get("type"),
-                            "state": "SIGNING_FAILED",        
-                            "amount_sats": psbt.get("amount_sats"),
-                            "source_address": psbt.get("source_address"),
-                            "target_address": psbt.get("target_address"),
-                            "meta": {},
-                            "error_code": ""
+                            psbt
                         }
                     )
                     log.info("Broadcast completed")
 
-                elif psbt.get("type") == "refill":
+                elif psbt.get("wallet_type") == "cold":
                     #Notify Human via ntfy for start of manual proess
                     return
         
@@ -198,4 +168,5 @@ async def shutdown():
     global nc
     if nc:
         await nc.drain()
+
     log.info(SERVICE_NAME)

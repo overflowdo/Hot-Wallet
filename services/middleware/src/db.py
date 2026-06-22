@@ -78,11 +78,6 @@ def fetch_all(query: str, params: tuple = ()):
             return cur.fetchall()
 
 
-def archive_txRecord(network: str, height: int, tip_hash: str):
-    with conn() as c:
-        c.commit()
-
-
 #One time pro wallet
 def create_wallet(
     wallet_id: str,
@@ -126,7 +121,7 @@ def create_wallet(
 
         c.commit()
 
-def archive_psbt():
+def archive_psbt(psbt):
     return
 
 
