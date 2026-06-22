@@ -5,13 +5,11 @@ import asyncio
 import hashlib
 import json
 import httpx
-from datetime import datetime, timezone
 import logging
 import time
 
-from .db import insert_psbt, upsert_psbt_artifact
-
-
+from .db import insert_psbt
+from .models import PSBTModel
 
 SIGNER_URL = os.getenv("SIGNER_URL")
 SIGNER_PORT = os.getenv("SIGNER_PORT")
@@ -32,7 +30,7 @@ log = logging.getLogger("middleware")
 def utc_now_epoch() -> str:
     return str(int(time.time()))
 
-async def sign_psbt(psbt: dict) -> dict:
+async def sign_psbt(psbt: PSBTModel) -> PSBTModel:
     #Weiterleitung zu Sign Funktion
     try:
         signed = await sign_psbt_on_signer(
@@ -42,16 +40,10 @@ async def sign_psbt(psbt: dict) -> dict:
             psbt.get("type")
         )
     except Exception as e:
+        psbt["state"] = "SIGNING_FAILED"
         await asyncio.to_thread(
             insert_psbt, {
-                "id": psbt.get("id"),
-                "type": psbt.get("type"),
-                "state": "SIGNING_FAILED",        
-                "amount_sats": psbt.get("amount_sats"),
-                "source_address": psbt.get("source_address"),
-                "target_address": psbt.get("target_address"),
-                "meta": {},
-                "error_code": str(e)
+                psbt
             }
         )
         log.info(f"Ein Fehler ist aufgetreten: {e}")
@@ -59,31 +51,19 @@ async def sign_psbt(psbt: dict) -> dict:
     
     #Bei sign ohne direkten error
     if signed is None:
+        psbt["state"] = "SIGNING_FAILED"
         await asyncio.to_thread(
             insert_psbt, {
-                "id": psbt.get("id"),
-                "type": psbt.get("type"),
-                "state": "SIGNING_FAILED",        
-                "amount_sats": psbt.get("amount_sats"),
-                "source_address": psbt.get("source_address"),
-                "target_address": psbt.get("target_address"),
-                "meta": {},
-                "error_code": psbt.get("error_code"),
+                psbt
             }
         )
         return signed
     
     #Nach erfolgreichen Signieren
+    psbt["state"] = "SIGNED"
     await asyncio.to_thread(
         insert_psbt, {
-            "id": psbt.get("id"),
-            "type": psbt.get("type"),
-            "state": "SIGNED",        
-            "amount_sats": psbt.get("amount_sats"),
-            "source_address": psbt.get("source_address"),
-            "target_address": psbt.get("target_address"),
-            "meta": {},
-            "error_code": psbt.get("error_code"),
+            psbt
         }
     )
 

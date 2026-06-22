@@ -3,6 +3,8 @@ import json
 import psycopg
 from psycopg.rows import dict_row
 
+from .models import PSBTModel
+
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 
 def conn():
@@ -53,18 +55,6 @@ def get_wallet(wallet_id: str):
         with c.cursor() as cur:
             cur.execute("""
                 SELECT wallet_id, xpub, derivation_path, gap_limit, last_used_index, next_scan_index
-                FROM btc.wallet
-                WHERE wallet_id = %s
-            """, (wallet_id,))
-            return cur.fetchone()
-        
-
-
-def get_desc(wallet_id: str):
-    with conn() as c:
-        with c.cursor() as cur:
-            cur.execute("""
-                SELECT xpub
                 FROM btc.wallet
                 WHERE wallet_id = %s
             """, (wallet_id,))
@@ -143,7 +133,7 @@ def archive_psbt():
 
 
 #State logging für psbts (unterscheidung zu intent möglcih, aber unnötig kompliziert)
-def insert_psbt(psbt: dict):
+def insert_psbt(psbt: PSBTModel):
     with conn() as c:
         with c.cursor() as cur:
             cur.execute("""
@@ -160,8 +150,8 @@ def insert_psbt(psbt: dict):
                 )
                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
             """, (
-                psbt.get("id"),
-                psbt.get("type"),
+                psbt.get("psbt_id"),
+                psbt.get("wallet_type"),
                 psbt.get("state"),
                 psbt.get("network", "regtest"),
                 psbt.get("amount_sats"),
@@ -171,6 +161,18 @@ def insert_psbt(psbt: dict):
                 psbt.get("error_code")
             ))
         c.commit()
+
+def psbt_id_exists(psbt_id: str) -> bool:
+    with conn() as c:
+        with c.cursor() as cur:
+            cur.execute("""
+                SELECT 1
+                FROM btc.psbt
+                WHERE psbt_id = %s
+                LIMIT 1
+            """, (psbt_id,))
+            
+            return cur.fetchone() is not None
 
 
 

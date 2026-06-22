@@ -3,17 +3,16 @@ import httpx
 import asyncio
 import logging
 
-from .db import insert_psbt, psbt_created_seen, insert_opa_decision
+from .db import insert_psbt, insert_opa_decision
+from .models import PSBTModel
+
+OPA_URL = os.getenv("OPA_URL", "http://opa:8181")
 SERVICE_NAME = os.getenv("SERVICE_NAME", "middleware")
 log = logging.getLogger(SERVICE_NAME)
 
 
-OPA_URL = os.getenv("OPA_URL", "http://opa:8181")
-log = logging.getLogger("middleware")
-
-
-async def evaluate_hot_intent(intent: dict) -> dict:
-    payload = {"input": to_opa_input(intent)}
+async def send_to_opa(psbt: PSBTModel) -> dict:
+    payload = {"input": to_opa_input(psbt)}
 
     log.info(
         "sending to OPA",
@@ -47,87 +46,79 @@ async def evaluate_hot_intent(intent: dict) -> dict:
         }
 
 
-def to_opa_input(intent: dict) -> dict:
+def to_opa_input(psbt: PSBTModel) -> dict:
     return {
-        "amount_sats": intent.get("amount_sats", 0),
-        "target_address": intent.get("target_address", ""),
-        "request_id": intent.get("id", ""),
-        "network": intent.get("network", "regtest"),
-        "actor": "middleware",
-        "reason": intent.get("reason", ""),
-        "meta": intent.get("meta", {}),
-        "velocity": intent.get("velocity", {}),
+        "network": psbt.network,
+        "target_address": psbt.target_address,
+
+        "amount_sats": psbt.amount_sats,
+        "fee_sats": psbt.fee_sats,
+        "fee_rate": psbt.fee_rate,
+        "changepos": psbt.changepos,
+
     }
     
 
-async def handle_intent(psbt: dict)-> bool:
+async def opa_evaluate(psbt: PSBTModel) -> bool:
 
-    #Deduplication of Tx because of race conditions check
-    if await asyncio.to_thread(psbt_created_seen, psbt.get("id"), "INTENT_CREATED"):
-        return False
+    #Weiterleitung zu OPA bei hot-tx, nicht benötigt für refill (mensch)
+    decision = await send_to_opa(psbt)
 
-    if psbt.get("type") == "refill":
-        psbt["source_address"] = "cold"
-    elif psbt.get("type") == "hot-tx":
-        psbt["source_address"] = "hot"
+    allowed = decision.get("allow", False)
+    reasons = decision.get("reasons", [])
 
+    #DB logging
     await asyncio.to_thread(
-        insert_psbt,{
-            "id": psbt.get("id"),
-            "type": psbt.get("type"),
-            "state": "INTENT_CREATED",        
-            "amount_sats": psbt.get("amount_sats"),
-            "source_address": psbt.get("source_address"),
-            "target_address": psbt.get("target_address"),
-            "meta": {},
-            "error_code": "-",
-        }
+        insert_opa_decision,
+        psbt_id=psbt.get("id"),
+        policy_name="policy.hot",
+        actor="middleware",
+        allow=allowed,
+        reasons=reasons,
+        input_data=psbt,
+        result = decision
     )
 
-    if psbt.get("type") == "hot-tx":
-        #Weiterleitung zu OPA bei hot-tx, nicht benötigt für refill (mensch)
-        decision = await evaluate_hot_intent(psbt)
-
-        allowed = decision.get("allow", False)
-        reasons = decision.get("reasons", [])
-
-        #DB logging
-        await asyncio.to_thread(
-            insert_opa_decision,
-            psbt_id=psbt.get("id"),
-            policy_name="policy.hot",
-            actor="middleware",
-            allow=allowed,
-            reasons=reasons,
-            input_data=psbt,
-            result = decision
-        )
-
-        if not allowed:
-            await asyncio.to_thread(
-                insert_psbt, {
-                    "id": psbt.get("id"),
-                    "type": psbt.get("type"),
-                    "state": "OPA_REJECTED",        
-                    "amount_sats": psbt.get("amount_sats"),
-                    "source_address": psbt.get("source_address"),
-                    "target_address": psbt.get("target_address"),
-                    "meta": {},
-                    "error_code": psbt.get("error_code") or reasons,
-                }
-            )
-            return False
-
+    if not allowed:
         await asyncio.to_thread(
             insert_psbt, {
                 "id": psbt.get("id"),
                 "type": psbt.get("type"),
-                "state": "OPA_APPROVED",        
+                "state": "OPA_REJECTED",        
                 "amount_sats": psbt.get("amount_sats"),
                 "source_address": psbt.get("source_address"),
                 "target_address": psbt.get("target_address"),
                 "meta": {},
-                "error_code": psbt.get("error_code"),
+                "error_code": psbt.get("error_code") or reasons,
             }
         )
+
+        log.info(
+            "not permitted",
+            extra={
+                "payload": psbt
+            }
+        )
+        return False
+
+    await asyncio.to_thread(
+        insert_psbt, {
+            "id": psbt.get("id"),
+            "type": psbt.get("type"),
+            "state": "OPA_APPROVED",        
+            "amount_sats": psbt.get("amount_sats"),
+            "source_address": psbt.get("source_address"),
+            "target_address": psbt.get("target_address"),
+            "meta": {},
+            "error_code": psbt.get("error_code"),
+        }
+    )
+    log.info(
+        "Permitted",
+        extra={
+            "payload": psbt
+        }
+    )
     return True
+    
+    
