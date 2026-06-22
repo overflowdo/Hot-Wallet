@@ -51,26 +51,26 @@ async def startup():
     #Init
     #Weiterleitung zu TX-builder
     async def intent_created_handler(msg):
-        intent = create_paymentIntent_msg(msg.data.decode())
+        intent = await create_paymentIntent_msg(msg.data.decode())
 
-        rail = intent.get("rail")
-        log.info(f"intent received: {intent.get('id')} rail={rail}")
+        rail = intent.rail
+        log.info(f"intent received: {intent.intent_id} rail={rail}")
 
         #Deduplication of Tx (only when id send by vendor. wenn selsbtvergeben immer unique)
-        if await asyncio.to_thread(psbt_created_seen, intent.get("id"), "INTENT_CREATED"):
-            log.info(f"Already seen: {intent.get('id')} rail={rail}")
+        if await asyncio.to_thread(psbt_created_seen, intent.intent_id, "INTENT_CREATED"):
+            log.info(f"Already seen: {intent.intent_id} rail={rail}")
             return
             
 
         if rail == "bip21":
-            psbt = create_psbt(
-                psbt_id=intent["id"],
+            psbt = await create_psbt(
+                psbt_id=intent.intent_id,
                 wallet_type="hot",
                 psbt="",                                    #nach tx-builder
-                network=intent.get("network", "regtest"),
+                network=intent.network,
                 source_address="keyA",
-                target_address=intent.get("target_address"),
-                amount_sats=intent.get("amount_sats"),
+                target_address=intent.target_address,
+                amount_sats=intent.amount_sats,
                 fee_sats=None,
                 fee_rate=None,
                 changepos=None,
@@ -114,7 +114,7 @@ async def startup():
     #Erfolgreich
     #Weiterleitung zu Signer
     async def psbt_created_handler(msg):
-        psbt = create_psbt_msg(msg.data.decode())
+        psbt = await create_psbt_msg(msg.data.decode())
 
         #Inkludiert nur logging
         handle_psbt_created(psbt)
@@ -124,7 +124,7 @@ async def startup():
             #Weiterleitung zum Signer
             signed = await sign_psbt(psbt)
             if signed is not None:
-                if psbt.get("wallet_type") == "hot":
+                if psbt.wallet_type == "hot":
                     rawtx_hex = signed.get("rawtx_hex")
 
                     if not rawtx_hex:
@@ -141,7 +141,7 @@ async def startup():
                     )
                     log.info("Broadcast completed")
 
-                elif psbt.get("wallet_type") == "cold":
+                elif psbt.wallet_type == "cold":
                     #Notify Human via ntfy for start of manual proess
                     return
         

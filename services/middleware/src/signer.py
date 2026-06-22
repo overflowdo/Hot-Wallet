@@ -34,10 +34,10 @@ async def sign_psbt(psbt: PSBTModel) -> PSBTModel:
     #Weiterleitung zu Sign Funktion
     try:
         signed = await sign_psbt_on_signer(
-            psbt.get("id"),
-            psbt.get("psbt_base64"),
-            psbt.get("sha256"),
-            psbt.get("type")
+            psbt.psbt_id,
+            psbt.psbt,
+            psbt.sha256,
+            psbt.wallet_type
         )
     except Exception as e:
         psbt["state"] = "SIGNING_FAILED"

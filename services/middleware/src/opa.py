@@ -70,7 +70,7 @@ async def opa_evaluate(psbt: PSBTModel) -> bool:
     #DB logging
     await asyncio.to_thread(
         insert_opa_decision,
-        psbt_id=psbt.get("id"),
+        psbt_id=psbt.psbt_id,
         policy_name="policy.hot",
         actor="middleware",
         allow=allowed,
@@ -79,17 +79,13 @@ async def opa_evaluate(psbt: PSBTModel) -> bool:
         result = decision
     )
 
+    psbt.state = "OPA_REJECTED"
+    psbt.error_code = psbt.error_code or reasons
+
     if not allowed:
         await asyncio.to_thread(
             insert_psbt, {
-                "id": psbt.get("id"),
-                "type": psbt.get("type"),
-                "state": "OPA_REJECTED",        
-                "amount_sats": psbt.get("amount_sats"),
-                "source_address": psbt.get("source_address"),
-                "target_address": psbt.get("target_address"),
-                "meta": {},
-                "error_code": psbt.get("error_code") or reasons,
+                psbt
             }
         )
 
@@ -101,16 +97,10 @@ async def opa_evaluate(psbt: PSBTModel) -> bool:
         )
         return False
 
+    psbt.state = "OPA_APPROVED"
     await asyncio.to_thread(
         insert_psbt, {
-            "id": psbt.get("id"),
-            "type": psbt.get("type"),
-            "state": "OPA_APPROVED",        
-            "amount_sats": psbt.get("amount_sats"),
-            "source_address": psbt.get("source_address"),
-            "target_address": psbt.get("target_address"),
-            "meta": {},
-            "error_code": psbt.get("error_code"),
+            psbt
         }
     )
     log.info(
@@ -120,5 +110,3 @@ async def opa_evaluate(psbt: PSBTModel) -> bool:
         }
     )
     return True
-    
-    

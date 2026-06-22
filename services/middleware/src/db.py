@@ -3,6 +3,8 @@ import json
 import psycopg
 from psycopg.rows import dict_row
 
+from .models import PSBTModel
+
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 
 def conn():
@@ -78,6 +80,7 @@ def fetch_all(query: str, params: tuple = ()):
             return cur.fetchall()
 
 
+
 #One time pro wallet
 def create_wallet(
     wallet_id: str,
@@ -121,12 +124,12 @@ def create_wallet(
 
         c.commit()
 
-def archive_psbt(psbt):
+def archive_psbt(psbt: PSBTModel):
     return
 
 
 #State logging für psbts (unterscheidung zu intent möglcih, aber unnötig kompliziert)
-def insert_psbt(psbt: dict):
+def insert_psbt(psbt: PSBTModel):
     with conn() as c:
         with c.cursor() as cur:
             cur.execute("""
@@ -143,15 +146,15 @@ def insert_psbt(psbt: dict):
                 )
                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
             """, (
-                psbt.get("psbt_id"),
-                psbt.get("wallet_type"),
-                psbt.get("state"),
-                psbt.get("network", "regtest"),
-                psbt.get("amount_sats"),
-                psbt.get("source_address"),
-                psbt.get("target_address"),
-                json.dumps(psbt.get("meta", {})),
-                psbt.get("error_code")
+                psbt.psbt_id,
+                psbt.wallet_type,
+                psbt.state,
+                psbt.network,
+                psbt.amount_sats,
+                psbt.source_address,
+                psbt.target_address,
+                json.dumps(psbt.meta),
+                json.dumps(psbt.error_code)
             ))
         c.commit()
 

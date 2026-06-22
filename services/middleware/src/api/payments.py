@@ -4,6 +4,9 @@ import logging
 from fastapi import APIRouter, Body, HTTPException, Request
 
 from src.models import create_paymentIntent, PaymentIntent, create_psbt, PSBTModel
+from uuid import uuid4 
+from .db import psbt_id_exists
+import asyncio
 
 BITCOIN_NETWORK = os.getenv("BITCOIN_NETWORK", "regtest")
 SERVICE_NAME = os.getenv("SERVICE_NAME", "middleware")
@@ -32,7 +35,15 @@ async def request_bip21(request: Request, payload: dict = Body(...)):
     amount_btc = float(qs.get("amount", [0])[0]) if "amount" in qs else 0
     amount_sats = int(amount_btc * 100_000_000) if amount_btc else None
 
+    intent_id = ""
+    while True:
+        intent_id = str(uuid4())
+        exists = await asyncio.to_thread(psbt_id_exists, intent_id)
+        if not exists:
+            break
+
     intent = await create_paymentIntent(
+        intent_id=intent_id,
         rail="bip21",
         network=BITCOIN_NETWORK,
         amount_sats=amount_sats,
@@ -43,7 +54,7 @@ async def request_bip21(request: Request, payload: dict = Body(...)):
         }
     )
 
-    intent_id = await publish_intent(nc, intent)
+    publish_intent(nc, intent)
 
     return {
         "ok": True,
@@ -56,8 +67,6 @@ async def publish_intent(nc, intent: PaymentIntent):
         "intent.created",
         intent.model_dump_json().encode()
     )
-
-    return intent.id
 
 
 #######################################################
@@ -77,9 +86,17 @@ async def request_psbt(request: Request, payload: dict = Body(...)):
     psbt = payload.get("psbt")
     if not psbt:
         raise HTTPException(status_code=400, detail="Missing PSBT")
+    
+    psbt_id = ""
+    while True:
+        psbt_id = str(uuid4())
+        exists = await asyncio.to_thread(psbt_id_exists, psbt_id)
+        if not exists:
+            break
 
     psbt = await create_psbt(
-        psbt_id=None,
+        psbt_id=psbt_id,
+        wallet_type="hot",
         psbt=psbt,
         rail="psbt",
         network=BITCOIN_NETWORK,
@@ -88,11 +105,11 @@ async def request_psbt(request: Request, payload: dict = Body(...)):
         state="PSBT_CREATED",
     )
 
-    intent_id = await publish_psbt(nc, psbt)
+    publish_psbt(nc, psbt)
 
     return {
         "ok": True,
-        "intent_id": intent_id
+        "psbt_id": psbt_id
     }
 
 async def publish_psbt(nc, psbt: PSBTModel):
@@ -101,5 +118,3 @@ async def publish_psbt(nc, psbt: PSBTModel):
         "psbt.created",
         psbt.model_dump_json().encode()
     )
-
-    return psbt.id

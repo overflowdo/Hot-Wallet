@@ -20,17 +20,18 @@ async def handle_psbt_failed(psbt: PSBTModel):
     log.info(
         "PSBT build failed",
         extra={
-            "id": psbt.get("id"),
-            "type": psbt.get("type"),
+            "id": psbt.id,
+            "type": psbt.wallet_type,
             "state": "PSBT_FAILED",        
-            "amount_sats": psbt.get("amount_sats"),
-            "source_address": psbt.get("source_address"),
-            "target_address": psbt.get("target_address"),
-            "meta": {},
-            "error_code": psbt.get("error_code")
+            "amount_sats": psbt.amount_sats,
+            "source_address": psbt.source_address,
+            "target_address": psbt.target_address,
+            "meta": psbt.meta,
+            "error_code": psbt.error_code
         }
     )
 
+    psbt["state"] = "PSBT_FAILED"
     await asyncio.to_thread(
         insert_psbt, {
             psbt
@@ -44,17 +45,17 @@ async def handle_psbt_created(psbt: PSBTModel):
     log.info(
         "PSBT build success",
         extra={
-            "id": psbt.get("id"),
-            "type": psbt.get("type"),
+            "id": psbt.id,
+            "type": psbt.wallet_type,
             "state": "PSBT_CREATED",        
-            "amount_sats": psbt.get("amount_sats"),
-            "source_address": psbt.get("source_address"),
-            "target_address": psbt.get("target_address"),
-            "meta": {},
-            "error_code": psbt.get("error_code")
+            "amount_sats": psbt.amount_sats,
+            "source_address": psbt.source_address,
+            "target_address": psbt.target_address,
+            "meta": psbt.meta,
+            "error_code": psbt.error_code
         }
     )
-
+    psbt["state"] = "PSBT_CREATED"
     await asyncio.to_thread(
         insert_psbt, {
             psbt

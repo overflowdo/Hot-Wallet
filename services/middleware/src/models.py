@@ -1,17 +1,16 @@
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Literal,Any
-from typing import Union
 import json
-from uuid import uuid4 
-from .db import psbt_id_exists
-import asyncio
 import hashlib
+import uuid4
+import asyncio
 
 from .txBuilder import extr_psbtInfo
+from .db import psbt_id_exists
 
 
 class PaymentIntent(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid4())) #praktisch keine Kollision mit 2^122 werden
+    id: str = Field(default_factory=lambda: str(uuid4())) #praktisch keine Kollision mit 2^122
 
     type: Literal["payment_intent"] = "payment_intent"
 
@@ -39,12 +38,6 @@ async def create_paymentIntent(
     target_address: str | None = None,
     meta: dict | None = None,
 ) -> PaymentIntent:
-    if intent_id is None:
-        while True:
-            intent_id = str(uuid4())
-            exists = await asyncio.to_thread(psbt_id_exists, intent_id)
-            if not exists:
-                break
         
 
     return PaymentIntent(

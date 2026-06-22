@@ -17,7 +17,7 @@ from nats.aio.client import Client as NATS
 from .logging_setup import setup_logging
 from .metrics import INTENTS_TOTAL, UTXO_UNSPENT_GAUGE, PSBT_BUILT_TOTAL
 from .bitcoind import get_psbt, get_outputAddress
-from .models import PSBTModel
+from .models import PSBTModel, create_psbt, PaymentIntent, create_paymentIntent_msg
 
 SERVICE_NAME = os.getenv("SERVICE_NAME", "tx-builder")
 NATS_URL = os.getenv("NATS_URL", "nats://nats:4222")
@@ -83,55 +83,32 @@ async def handle_intent_build(msg):
         return
 
     try:
-        intent_data = json.loads(msg.data.decode("utf-8"))
-        intent = PSBTModel(
-            psbt_id=intent_data["psbt_id"],
-            wallet_type=intent_data.get("wallet_type"),
-            psbt="",
-            network=intent_data.get("network", "regtest"),
-            source_address=intent_data.get("source_address"),
-            target_address=intent_data.get("target_address"),
-            amount_sats=intent_data.get("amount_sats"),
-            fee_sats=None,
-            fee_rate=None,
-            changepos=None,
-            state=intent_data.get("state"),           
-            meta=intent_data.get("meta"),
-            error_code=intent_data.get("error_code")
-        )
-        if not intent.get("id"):
+        intent = create_paymentIntent_msg(msg.data.decode())
+        if not intent.psbt_id:
             return
 
         # build psbt
-        result = await build_psbt_for_intent(intent)
+        psbt = await build_psbt_for_intent(intent)
 
-        if result is None or not result.success:
+        if psbt is None or not psbt.success:
             #metrics logging
             PSBT_BUILT_TOTAL.labels(result="failed").inc()
             INTENTS_TOTAL.labels(type="refill", result="no-psbt").inc()
 
-            log.error("intent_handler_failed", extra={"service": SERVICE_NAME, "intent_id": intent.get("id"),"status": "intent_handler_failed", "error_code": result.error_code, "context": result.context,"created_utc": utc_now_iso()})
+            psbt.meta = psbt.meta | {"created_utc": utc_now_iso()}
+
+            log.error("intent_handler_failed", extra={"service": SERVICE_NAME, "intent_id": psbt.psbt_id,"status": "intent_handler_failed", "error_code": psbt.error_code, "context": psbt.context,"created_utc": utc_now_iso()})
             if nc:
                 await nc.publish(
-                "psbt.failed",
-                json.dumps({
-                    "id": intent.get("id"),
-                    "type": intent.get("type"),
-                    "network": intent.get("network"),
-                    "amount_sats": intent.get("amount_sats"),
-                    "target_address": intent.get("target_address"),
-                    "error_code": result.error_code,
-                    "context": result.context,
-                    "meta": intent.get("meta", {}),
-                    "created_utc": utc_now_iso()
-                }).encode()
-            )
+                    "psbt.failed",
+                    psbt.model_dump_json().encode()
+                )
             return
 
-        if isinstance(result.psbt, str):
-            psbt_bytes = base64.b64decode(result.psbt)
-        elif isinstance(result.psbt, bytes):
-            psbt_bytes = result.psbt
+        if isinstance(psbt.psbt, str):
+            psbt.psbt = base64.b64decode(psbt.psbt)
+        elif isinstance(psbt.psbt, bytes):
+            print() ######################################################
         else:
             raise ValueError("Invalid PSBT format")
 
@@ -139,48 +116,32 @@ async def handle_intent_build(msg):
         PSBT_BUILT_TOTAL.labels(result="ok").inc()
         INTENTS_TOTAL.labels(type="refill", result="psbt-created").inc()
 
+        psbt.psbt = base64.b64encode(psbt.psbt).decode(),
+        psbt.sha256 = sha256(psbt.psbt),
+        psbt.meta = psbt.meta | {"created_utc": utc_now_iso()}
+
         if nc:
             await nc.publish(
                 "psbt.created",
-                json.dumps({
-                    "id": intent.get("id"),
-                    "type": intent.get("type"),
-                    "network": intent.get("network"),
-                    "amount_sats": intent.get("amount_sats"),
-                    "source_address": intent.get("source_address"),
-                    "target_address": intent.get("target_address"),
-                    "psbt_base64": base64.b64encode(psbt_bytes).decode(),
-                    "sha256": sha256(psbt_bytes),
-                    "meta": intent.get("meta", {}),
-                    "created_utc": utc_now_iso(),
-                    "resources": result.context or {}
-                }).encode()
+                psbt.model_dump_json().encode()
             )
 
     except Exception as e:
+        psbt.meta = psbt.meta = psbt.meta | {"message": str(e)} | {"created_utc": utc_now_iso()}
+
         log.error("intent_handler_failed", extra={"service": SERVICE_NAME, "intent_id": intent.get("id"),"status": "intent_handler_failed", "error_code": "INTERNAL_ERROR", "context": {"message": str(e)},"created_utc": utc_now_iso()})
         if nc:
             await nc.publish(
                 "psbt.failed",
-                json.dumps({
-                    "id": intent.get("id"),
-                    "type": intent.get("type"),
-                    "network": intent.get("network"),
-                    "amount_sats": intent.get("amount_sats"),
-                    "source_address": intent.get("source_address"),
-                    "target_address": intent.get("target_address"),
-                    "context": {"message": str(e)},
-                    "meta": intent.get("meta", {}),
-                    "created_utc": utc_now_iso()
-                }).encode()
+                psbt.model_dump_json().encode()
             )
 
   
-async def build_psbt_for_intent(intent: PSBTModel) -> PSBTModel:
-    intent_id = intent.get("id")
-    target_address = None
+async def build_psbt_for_intent(intent: PaymentIntent) -> PSBTModel:
+    intent_id = intent.id
+    target_address = intent.target_address
     #change_desc = None
-    changeWallet_name = None
+    changeWallet_name = intent.wallet_type
 
     amount_sats = int(intent.get("amount_sats", 0))
     if amount_sats <= 0:
@@ -188,24 +149,37 @@ async def build_psbt_for_intent(intent: PSBTModel) -> PSBTModel:
             "intent_id": intent_id,
             "amount_sats": amount_sats
         })
-        intent["error_code"] = "INVALID_AMOUNT"
-        intent["meta"] = intent["meta"] | {"success=False"}
+        intent.error_code = "INVALID_AMOUNT"
+        intent.meta = intent.meta | {"success=False"}
         return intent
 
     #Variieren nach auszuführender Aktion
-    if intent.get("type") == "refill":
+    if intent.type == "refill":
         changeWallet_name = COLD_WALLET_NAME
+        wallet_type = "cold"
         target_address = get_outputAddress(HOT_WALLET_NAME)
         
-    elif intent.get("type") == "hot-tx":
+    elif intent.type == "hot-tx":
         #change_desc = HOT_WALLET_DESC
         changeWallet_name = HOT_WALLET_NAME
+        wallet_type = "hot"
         #target_address = intent.get("target_address", "") richtig, aber beim testing gerade schwierig#########################################################################################
-        target_address = get_outputAddress(COLD_WALLET_NAME)
+        target_address = get_outputAddress(intent.target_address)
+
     else:
-        intent["error_code"] = "UNKNOWN_INTENT_TYPE"
-        intent["meta"] = intent["meta"] | {"success=False"}
-        return intent
+        intent.meta = intent.meta | {"success=False"}
+        return create_psbt(
+            psbt_id = intent.id,
+            wallet_type = wallet_type,
+            psbt =  "",
+            network = intent.network,
+            amount_sats = intent.amount_sats,
+            target_address = target_address,
+            source_address = intent.source_address,
+            state = "PSBT_CREATED",
+            meta = intent.meta,
+            error_code = "UNKNOWN_INTENT_TYPE"
+        )
     
     #change_address = get_changeAddress(changeWallet_name)
     
@@ -222,16 +196,26 @@ async def build_psbt_for_intent(intent: PSBTModel) -> PSBTModel:
         result = get_psbt(outputs, changeWallet_name)
         
     except Exception as e:
-        intent["error_code"] = "RPC_ERROR"
-        intent["meta"] = intent["meta"] | {"success=False"} | {"message": str(e)}
-        return intent
+        intent.meta = intent.meta | {"success=False"} | {"message": str(e)}
+        return create_psbt(
+            psbt_id = intent.id,
+            wallet_type = wallet_type,
+            psbt =  "",
+            network = intent.network,
+            amount_sats = intent.amount_sats,
+            target_address = target_address,
+            source_address = intent.source_address,
+            state = "PSBT_CREATED",
+            meta = intent.meta,
+            error_code = "RPC_ERROR"
+        )
     
-    psbt = result.get("psbt")
+    psbt = result.psbt
 
-    fee_btc = result.get("fee", 0)
+    fee_btc = result.fee
     fee_sats = int(fee_btc * 1e8)
 
-    fee_rate = result.get("fee_rate")
+    fee_rate = result.fee_rate
 
     changepos = result.get("changepos", None)
 
@@ -241,7 +225,7 @@ async def build_psbt_for_intent(intent: PSBTModel) -> PSBTModel:
     log.info(
         "psbt_created_core",
         extra={
-            "intent_id": intent_id,
+            "intent_id": intent.id,
             "fee_sats": fee_sats,
             "changepos": changepos,
             "fee_rate": result.get("fee_rate"),
@@ -249,13 +233,20 @@ async def build_psbt_for_intent(intent: PSBTModel) -> PSBTModel:
         }
     )
 
-    intent["sha256"] = sha256(psbt_bytes)
-    intent["psbt"] = psbt_bytes
-    intent["fee_rate"] = result.get("fee_rate")
-    intent["fee_sats"] = fee_sats
-    intent["change_pos"] = changepos
-    intent["meta"] = intent["meta"] | {"success=True"}
-    return intent
+    psbt = create_psbt(
+        psbt_id = intent.id,
+        wallet_type = wallet_type,
+        psbt =  psbt_bytes,
+        network = intent.network,
+        amount_sats = intent.amount_sats,
+        fee_sats = fee_sats,
+        fee_rate = fee_rate,
+        changepos = changepos,
+        target_address = target_address,
+        source_address = intent.source_address,
+        state = "PSBT_CREATED",
+        meta = intent.meta,
+    )
 
 
 async def handle_newWallet(msg):
