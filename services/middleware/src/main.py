@@ -9,7 +9,7 @@ import logging
 from .opa import opa_evaluate
 from .api.btc_core import broadcast_to_bitcoind
 from .signer import sign_psbt
-from .txBuilder import handle_psbt_created, handle_psbt_failed
+from .txBuilder import handle_psbt_created, handle_psbt_failed, whitelist_check
 from .logging_setup import setup_logging
 from .models import create_psbt, create_psbt_msg, create_paymentIntent_msg
 from src.api import payments, wallets, health 
@@ -117,7 +117,7 @@ async def startup():
         #Inkludiert nur logging
         await handle_psbt_created(psbt)
 
-        if await opa_evaluate(psbt):
+        if await opa_evaluate(psbt) and await whitelist_check(psbt):
             #refill und hot-tx müssen gesigned werden
             #Weiterleitung zum Signer
             signed = await sign_psbt(psbt)

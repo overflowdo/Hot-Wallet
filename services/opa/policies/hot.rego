@@ -4,60 +4,79 @@ import rego.v1
 
 default allow := false
 
-allow if{
-  input_valid
-  count(deny) == 0
+allow if {
+    input_valid
+    count(deny) == 0
 }
 
 decision := {
-  "allow": allow,
-  "reasons": deny,
-  "limits": limits
+    "allow": allow,
+    "reasons": deny,
+    "limits": limits
 }
 
 limits := data.hot.limits
 
-input_valid if{
-  input.amount_sats > 0
-  input.target_address != ""
-  input.request_id != ""
-  input.network != ""
+################################################################################
+# Input validation
+################################################################################
+
+input_valid if {
+    input.amount_sats > 0
+    input.psbt_id != ""
+    input.psbt != ""
+    input.source_address != ""
+    input.target_address != ""
+    input.network != ""
+    input.fee != ""
+    input.network != ""
 }
 
-deny["network not allowed"] if{
-  not data.networks.allowed[input.network]
+################################################################################
+# Deny rules
+################################################################################
+
+deny["network not allowed"] if {
+    not data.networks.allowed[input.network]
 }
 
-deny["amount exceeds limit"] if{
-  input.amount_sats > data.hot.limits.max_amount_sats
+deny["amount exceeds limit"] if {
+    input.amount_sats > data.hot.limits.max_amount_sats
 }
 
-deny["target not whitelisted"] if{
-  not input.target_address in data.hot.whitelist_addresses
+################################################################################
+# Fee checks
+################################################################################
+
+deny["fee exceeds limit"] if {
+    input.fee_sats != null
+    input.fee_sats > data.hot.limits.max_fee_sats
 }
 
-#Später extra authentifizierung? hex code im meta?
-deny["tag required"] if{
-  data.hot.require_tag == true
-  not input.meta.tag
+deny["fee rate exceeds limit"] if {
+    input.fee_rate != null
+    input.fee_rate > data.hot.limits.max_fee_rate_sat_vb
 }
 
+deny["fee rate below minimum"] if {
+    input.fee_rate != null
+    input.fee_rate < data.hot.limits.min_fee_rate_sat_vb
+}
 
-# deny["fee too high"] if {
-#     input.fee_sats > data.hot.limits.max_fee_sats
-# }
+################################################################################
+# Optional SHA256 integrity
+################################################################################
 
-# deny["fee per sat too high"] if {
-#     input.fee_sats > data.hot.limits.max_fee_sats
-# }
+deny["missing psbt hash"] if {
+    data.hot.require_sha256
+    input.sha256 == ""
+}
 
-#vbytes contraint?
+################################################################################
+# Optional tag
+################################################################################
 
-# deny["too many inputs"] if {
-#     input.inputs_count > data.hot.limits.max_inputs
-# }
-
-# deny["missing changepos"] if {
-#     input.changepos == -1
-#     not data.hot.allow_no_change
-# }
+deny["tag required"] if {
+    data.hot.require_tag
+    not input.meta.tag
+}

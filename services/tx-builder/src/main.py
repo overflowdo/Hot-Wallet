@@ -91,14 +91,14 @@ async def handle_intent_build(msg):
         # build psbt
         psbt = await build_psbt_for_intent(intent)
 
-        if psbt.psbt == "":
+        if psbt is None or psbt.psbt == "":
             #metrics logging
             PSBT_BUILT_TOTAL.labels(result="failed").inc()
             INTENTS_TOTAL.labels(type="refill", result="no-psbt").inc()
 
             psbt.meta = psbt.meta | {"created_utc": utc_now_iso()}
 
-            log.error("intent_handler_failed", extra={"service": SERVICE_NAME, "intent_id": psbt.psbt_id,"status": "intent_handler_failed", "error_code": psbt.error_code, "context": psbt.context,"created_utc": utc_now_iso()})
+            log.error("intent_handler_failed", extra={"service": SERVICE_NAME, "intent_id": psbt.psbt_id,"status": "intent_handler_failed", "error_code": psbt.error_code, "context": psbt.meta,"created_utc": utc_now_iso()})
             if nc:
                 await nc.publish(
                     "psbt.failed",
@@ -154,8 +154,8 @@ async def build_psbt_for_intent(intent: PaymentIntent) -> PSBTModel:
             network = intent.network,
             amount_sats = intent.amount_sats,
             target_address = target_address,
-            source_address = intent.source_address,
-            state = "PSBT_CREATED",
+            source_address = changeWallet_name,
+            state = "PSBT_FAILED",
             meta = intent.meta | {"success=False"},
             error_code = "UNKNOWN_INTENT_TYPE"
         )
@@ -174,15 +174,15 @@ async def build_psbt_for_intent(intent: PaymentIntent) -> PSBTModel:
             network = intent.network,
             amount_sats = intent.amount_sats,
             target_address = target_address,
-            source_address = intent.source_address,
-            state = "PSBT_CREATED",
+            source_address = changeWallet_name,
+            state = "PSBT_FAILED",
             meta = intent.meta | {"success=False"},
             error_code = "INVALID_AMOUNT"
         )
 
     #change_address = get_changeAddress(changeWallet_name)
     
-    #sats → BTC
+    #sats -> BTC
     amount_btc = amount_sats / 1e8
 
     outputs = {
@@ -202,8 +202,8 @@ async def build_psbt_for_intent(intent: PaymentIntent) -> PSBTModel:
             network = intent.network,
             amount_sats = intent.amount_sats,
             target_address = target_address,
-            source_address = intent.source_address,
-            state = "PSBT_CREATED",
+            source_address = changeWallet_name,
+            state = "PSBT_FAILED",
             meta = intent.meta | {"success=False"} | {"message": str(e)},
             error_code = "RPC_ERROR"
         )
@@ -216,15 +216,9 @@ async def build_psbt_for_intent(intent: PaymentIntent) -> PSBTModel:
     changepos = result.get("changepos")
 
 
-    if isinstance(psbt.psbt, str):
-        psbt_bytes = base64.b64decode(psbt.psbt)
-    elif isinstance(psbt.psbt, bytes):
-        psbt_bytes = psbt.psbt
-    else:
-        raise ValueError("Invalid PSBT format")
-
-    psbt.psbt = base64.b64encode(psbt_bytes).decode() #Extern Base64 string
-    psbt.sha256 = sha256(psbt_bytes) #Intern bytes
+    psbt_bytes = base64.b64decode(psbt) if isinstance(psbt, str) else psbt
+    psbt_str = base64.b64encode(psbt_bytes).decode()
+    check_sha256 = sha256(psbt_bytes) #Intern bytes
 
     log.info(
         "psbt_created_core",
@@ -232,23 +226,25 @@ async def build_psbt_for_intent(intent: PaymentIntent) -> PSBTModel:
             "intent_id": intent.id,
             "fee_sats": fee_sats,
             "changepos": changepos,
-            "sha256": psbt.sha256
+            "sha256": check_sha256
         }
     )
 
-    psbt = await create_psbt(
+    return await create_psbt(
         psbt_id = intent.id,
         wallet_type = wallet_type,
-        psbt =  psbt.psbt,
+        psbt =  psbt_str,
         network = intent.network,
         amount_sats = intent.amount_sats,
         fee_sats = fee_sats,
-        fee_rate = "",
+        fee_rate = None,
         changepos = changepos,
         target_address = target_address,
-        source_address = intent.source_address,
+        source_address = changeWallet_name,
+        sha256=check_sha256,
         state = "PSBT_CREATED",
         meta = intent.meta,
+        error_code={}
     )
 
 

@@ -3,8 +3,9 @@ import logging
 import os
 
 
-from .db import insert_psbt
+from .db import insert_psbt, get_ext_walletNames
 from .models import PSBTModel
+from .api.btc_core import address_wallet_match
 
 
 SERVICE_NAME = os.getenv("SERVICE_NAME", "middleware")
@@ -55,6 +56,13 @@ async def handle_psbt_created(psbt: PSBTModel):
         insert_psbt, psbt
     )
 
+async def whitelist_check(address: str) -> bool:
+    wallet_names = get_ext_walletNames
+    for walletName in wallet_names:
+        if address_wallet_match(walletName, address):
+            return True
+
+    return False
 
 
 

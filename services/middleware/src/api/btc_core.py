@@ -43,3 +43,13 @@ def broadcast_to_bitcoind(raw_tx_hex: str):
         "sendrawtransaction",
         [raw_tx_hex]
     )
+
+
+def address_wallet_match(wallet_name: str, address: str) -> bool:
+    result = rpc_call(
+        f"{BITCOIND_RPC_URL}/wallet/{wallet_name}",
+        "getaddressinfo",
+        [address]
+    )
+
+    return result.get("ismine", False)

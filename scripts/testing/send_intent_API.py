@@ -38,7 +38,7 @@ def test_bip21(wallet_name_target):
     print(f"Generierte Adresse für wallet2: {new_address}")
 
     #Metadaten für den BIP-21
-    amount = "0.12"
+    amount = "0.012"
     label = quote("Luke Dashjr")  # URL-Encoding für Leerzeichen etc.
     message = quote("Donation to Luke & friends")
 
@@ -58,7 +58,7 @@ def test_psbt(wallet_name_target: str, wallet_name_source: str, lockTime: int):
     target_address = rpc_res_w2["result"]
     print(f" Zieladresse (wallet2): {target_address}")
 
-    outputs = [{target_address: 0.12}]
+    outputs = [{target_address: 0.012}]
     
     funded_res = rpc_call(
         f"{RPC_URL}/wallet/{wallet_name_source}",

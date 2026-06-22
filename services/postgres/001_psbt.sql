@@ -16,13 +16,13 @@ BEGIN
   END IF;
   
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'wallet_type') THEN
-    CREATE TYPE btc.wallet_type AS ENUM ('hot', 'cold');
+    CREATE TYPE btc.wallet_type AS ENUM ('hot', 'cold', 'ext');
   END IF;
 END $$;
 
 CREATE TABLE IF NOT EXISTS btc.wallet (
     wallet_id        TEXT PRIMARY KEY,
-    wallet_name        TEXT NOT NULL
+    wallet_name        TEXT NOT NULL,
     wallet_type      btc.wallet_type NOT NULL,
     network          TEXT NOT NULL,
 

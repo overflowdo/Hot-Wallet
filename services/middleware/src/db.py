@@ -78,8 +78,18 @@ def fetch_all(query: str, params: tuple = ()):
         with c.cursor() as cur:
             cur.execute(query, params)
             return cur.fetchall()
-
-
+        
+        
+def get_ext_walletNames() -> list[str]:
+    with conn() as c:
+        with c.cursor() as cur:
+            cur.execute("""
+                SELECT wallet_name
+                FROM btc.wallet
+                WHERE wallet_type = %s
+                AND active = TRUE
+            """, ("ext",))
+            return [row[0] for row in cur.fetchall()]
 
 #One time pro wallet
 def create_wallet(
@@ -210,7 +220,7 @@ def insert_opa_decision(
                 actor,
                 allow,
                 reasons,
-                json.dumps(input_data.model_dump())),
+                json.dumps(input_data.model_dump()),
                 json.dumps(result)
             ))
 
