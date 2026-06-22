@@ -42,9 +42,7 @@ async def sign_psbt(psbt: PSBTModel) -> PSBTModel:
     except Exception as e:
         psbt["state"] = "SIGNING_FAILED"
         await asyncio.to_thread(
-            insert_psbt, {
-                psbt
-            }
+            insert_psbt, psbt
         )
         log.info(f"Ein Fehler ist aufgetreten: {e}")
         return
@@ -53,18 +51,14 @@ async def sign_psbt(psbt: PSBTModel) -> PSBTModel:
     if signed is None:
         psbt["state"] = "SIGNING_FAILED"
         await asyncio.to_thread(
-            insert_psbt, {
-                psbt
-            }
+            insert_psbt, psbt
         )
         return signed
     
     #Nach erfolgreichen Signieren
     psbt["state"] = "SIGNED"
     await asyncio.to_thread(
-        insert_psbt, {
-            psbt
-        }
+        insert_psbt, psbt
     )
 
     # store signed PSBT artifact

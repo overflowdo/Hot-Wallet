@@ -2,10 +2,11 @@ from urllib.parse import urlparse, parse_qs
 import os
 import logging
 from fastapi import APIRouter, Body, HTTPException, Request
+from decimal import Decimal
 
 from src.models import create_paymentIntent, PaymentIntent, create_psbt, PSBTModel
 from uuid import uuid4 
-from .db import psbt_id_exists
+from src.db import psbt_id_exists
 import asyncio
 
 BITCOIN_NETWORK = os.getenv("BITCOIN_NETWORK", "regtest")
@@ -28,12 +29,31 @@ async def request_bip21(request: Request, payload: dict = Body(...)):
     if not uri or not uri.startswith("bitcoin:"):
         raise HTTPException(status_code=400, detail="Invalid BIP21 URI")
 
-    parsed = urlparse(uri)
-    address = parsed.path
+    if not uri.startswith("bitcoin://"):
+        normalized_uri = uri.replace("bitcoin:", "bitcoin://", 1)
+    else:
+        normalized_uri = uri
+
+    parsed = urlparse(normalized_uri)
+    address = parsed.netloc
     qs = parse_qs(parsed.query)
 
-    amount_btc = float(qs.get("amount", [0])[0]) if "amount" in qs else 0
-    amount_sats = int(amount_btc * 100_000_000) if amount_btc else None
+    if not address:
+        raise HTTPException(
+            status_code=400, detail="Could not extract Bitcoin address"
+        )
+
+    amount_sats = None
+    if "amount" in qs:
+        try:
+            amount_btc_str = qs.get("amount")[0]
+            # Konvertierung direkt von String zu Decimal verhindert Rundungsfehler
+            amount_btc = Decimal(amount_btc_str)
+            amount_sats = int(amount_btc * Decimal("100000000"))
+        except (ValueError, TypeError):
+            raise HTTPException(
+                status_code=400, detail="Invalid amount format in URI"
+            )
 
     intent_id = ""
     while True:
@@ -50,11 +70,12 @@ async def request_bip21(request: Request, payload: dict = Body(...)):
         target_address=address,
         meta={
             "label": qs.get("label", [None])[0],
-            "source": "bip21"
-        }
+            "message": qs.get("message", [None])[0],
+            "source": "bip21",
+        },
     )
 
-    publish_intent(nc, intent)
+    await publish_intent(nc, intent)
 
     return {
         "ok": True,
@@ -94,7 +115,7 @@ async def request_psbt(request: Request, payload: dict = Body(...)):
         if not exists:
             break
 
-    psbt = await create_psbt(
+    psbt_model = await create_psbt(
         psbt_id=psbt_id,
         wallet_type="hot",
         psbt=psbt,
@@ -105,7 +126,7 @@ async def request_psbt(request: Request, payload: dict = Body(...)):
         state="PSBT_CREATED",
     )
 
-    publish_psbt(nc, psbt)
+    await publish_psbt(nc, psbt_model)
 
     return {
         "ok": True,

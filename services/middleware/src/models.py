@@ -2,15 +2,16 @@ from pydantic import BaseModel, Field
 from typing import Optional, Dict, Literal,Any
 import json
 import hashlib
-import uuid4
 import asyncio
 
-from .txBuilder import extr_psbtInfo
-from .db import psbt_id_exists
+from embit.psbt import PSBT
+from embit.transaction import Transaction
+from embit.script import Script
+from embit.networks import NETWORKS
 
 
 class PaymentIntent(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid4())) #praktisch keine Kollision mit 2^122
+    id: str
 
     type: Literal["payment_intent"] = "payment_intent"
 
@@ -56,7 +57,7 @@ async def create_paymentIntent_msg(
     data = json.loads(msg)
 
     return await create_paymentIntent(
-        intent_id=data.get("intent_id"),
+        intent_id=data.get("id"),
         rail=data["rail"],
         network=data.get("network", "regtest"),
         amount_sats=data.get("amount_sats"),
@@ -113,19 +114,14 @@ async def create_psbt(
     error_code: dict | None = None,
 ) -> PSBTModel:
     
-    info = extr_psbtInfo(psbt, network)
-    amount_sats = amount_sats or info.get("amount_sats")
-    fee_sats = fee_sats or info.get("fee_sats")
-    fee_rate = fee_rate or info.get("fee_rate")
-    changepos = changepos or info.get("changepos")
-    target_address = target_address or info.get("target_address")
+    if state != "INTENT_CREATED":
+        info = extr_psbtInfo(psbt, network)
+        amount_sats = amount_sats or info.get("amount_sats")
+        fee_sats = fee_sats or info.get("fee_sats")
+        fee_rate = fee_rate or info.get("fee_rate")
+        changepos = changepos or info.get("changepos")
+        target_address = target_address or info.get("target_address")
 
-    if psbt_id is None:
-        while True:
-            psbt_id = str(uuid4())
-            exists = await asyncio.to_thread(psbt_id_exists, psbt_id)
-            if not exists:
-                break
 
     if sha256 is None:
         sha256 = hashlib.sha256(psbt.encode()).hexdigest()
@@ -171,3 +167,67 @@ async def create_psbt_msg(msg) -> PSBTModel:
         meta=data.get("meta"),
         error_code=data.get("error_code"),
     )
+
+
+def extr_psbtInfo(psbt_b64: str, network: str = "regtest") -> dict[str]:
+    psbt = PSBT.from_string(psbt_b64)
+    net = NETWORKS.get(network, NETWORKS["regtest"])
+
+    #inputs
+    input_value = sum(
+        inp.witness_utxo.value
+        for inp in psbt.inputs
+        if inp.witness_utxo
+    )
+
+    #outputs/target_adress
+    outputs = []
+    output_value = 0
+
+    for out in psbt.tx.vout:
+        output_value += out.value
+
+        try:
+            addr = out.script_pubkey.address(net)
+        except Exception:
+            addr = None
+
+        outputs.append({
+            "address": addr,
+            "value": out.value,
+        })
+
+    #fee
+    fee_sats = input_value - output_value if input_value else None
+
+    #fee rate
+    vsize = getattr(psbt.tx, "vsize", None)
+    fee_rate = fee_sats / vsize if fee_sats is not None and vsize else None
+
+    #target
+    target_address = outputs[0]["address"] if outputs else None
+
+    #amount (largest output = change)
+    amount_sats = None
+    if outputs:
+        if len(outputs) == 1:
+            amount_sats = outputs[0]["value"]
+        else:
+            change_value = max(o["value"] for o in outputs)
+            amount_sats = sum(o["value"] for o in outputs if o["value"] != change_value)
+
+    #changepos
+    changepos = None
+    for i, out in enumerate(psbt.outputs):
+        if getattr(out, "bip32_derivations", None):
+            changepos = i
+            break
+
+    return {
+        "amount_sats": amount_sats,
+        "fee_sats": fee_sats,
+        "fee_rate": fee_rate,
+        "target_address": target_address,
+        "changepos": changepos,
+        "outputs": outputs,
+    }

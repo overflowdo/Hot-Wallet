@@ -2,15 +2,10 @@ from pydantic import BaseModel, Field
 from typing import Optional, Dict, Literal,Any
 import json
 import hashlib
-import uuid4
-import asyncio
-
-from .txBuilder import extr_psbtInfo
-from .db import psbt_id_exists
 
 
 class PaymentIntent(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid4())) #praktisch keine Kollision mit 2^122
+    id: str
 
     type: Literal["hot-tx", "refill"]
 
@@ -112,20 +107,6 @@ async def create_psbt(
     meta: dict | None = None,
     error_code: dict | None = None,
 ) -> PSBTModel:
-    
-    info = extr_psbtInfo(psbt, network)
-    amount_sats = amount_sats or info.get("amount_sats")
-    fee_sats = fee_sats or info.get("fee_sats")
-    fee_rate = fee_rate or info.get("fee_rate")
-    changepos = changepos or info.get("changepos")
-    target_address = target_address or info.get("target_address")
-
-    if psbt_id is None:
-        while True:
-            psbt_id = str(uuid4())
-            exists = await asyncio.to_thread(psbt_id_exists, psbt_id)
-            if not exists:
-                break
 
     if sha256 is None:
         sha256 = hashlib.sha256(psbt.encode()).hexdigest()

@@ -84,9 +84,7 @@ async def opa_evaluate(psbt: PSBTModel) -> bool:
 
     if not allowed:
         await asyncio.to_thread(
-            insert_psbt, {
-                psbt
-            }
+            insert_psbt, psbt
         )
 
         log.info(
@@ -99,9 +97,7 @@ async def opa_evaluate(psbt: PSBTModel) -> bool:
 
     psbt.state = "OPA_APPROVED"
     await asyncio.to_thread(
-        insert_psbt, {
-            psbt
-        }
+        insert_psbt, psbt
     )
     log.info(
         "Permitted",

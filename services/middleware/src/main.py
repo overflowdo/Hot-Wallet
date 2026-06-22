@@ -54,17 +54,17 @@ async def startup():
         intent = await create_paymentIntent_msg(msg.data.decode())
 
         rail = intent.rail
-        log.info(f"intent received: {intent.intent_id} rail={rail}")
+        log.info(f"intent received: {intent.id} rail={rail}")
 
         #Deduplication of Tx (only when id send by vendor. wenn selsbtvergeben immer unique)
-        if await asyncio.to_thread(psbt_created_seen, intent.intent_id, "INTENT_CREATED"):
-            log.info(f"Already seen: {intent.intent_id} rail={rail}")
+        if await asyncio.to_thread(psbt_created_seen, intent.id, "INTENT_CREATED"):
+            log.info(f"Already seen: {intent.id} rail={rail}")
             return
             
 
         if rail == "bip21":
             psbt = await create_psbt(
-                psbt_id=intent.intent_id,
+                psbt_id=intent.id,
                 wallet_type="hot",
                 psbt="",                                    #nach tx-builder
                 network=intent.network,
@@ -82,14 +82,12 @@ async def startup():
             )
 
             await asyncio.to_thread(
-                insert_psbt,{
-                    psbt
-                }
+                insert_psbt, psbt
             )
 
             await nc.publish(
                 "psbt.build.requested",
-                psbt.model_dump_json().encode()
+                intent.model_dump_json().encode()
             )
         
         elif rail == "manual":
