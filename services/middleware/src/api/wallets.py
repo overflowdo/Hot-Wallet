@@ -2,7 +2,7 @@ import asyncio
 import os
 import logging
 import json
-from fastapi import APIRouter, Body, request, HTTPException
+from fastapi import APIRouter, Body, Request, HTTPException
 from src.db import create_wallet
 
 router = APIRouter()
@@ -17,7 +17,7 @@ nc = None
 #Laden von cold und hot-wallet in die DB
 #To Do ZMQ listening service für UTXO changes
 @router.post("/api/v1/importWallet")
-async def add_wallet(metadata: dict = Body(...)):
+async def add_wallet(request: Request, metadata: dict = Body(...)):
     nc = request.app.state.nc
 
     required_fields = ["wallet_type", "network", "xpub"]

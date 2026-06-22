@@ -1,0 +1,35 @@
+import requests
+
+BASE = "http://localhost:8080/api/v1/request"
+
+
+
+#TEST BIP21
+def test_bip21():
+    res = requests.post(
+        f"{BASE}/bip21",
+        json={
+            "uri": "bitcoin:bc1qtestaddressxyz?amount=0.001&label=test"
+        }
+    )
+    print("BIP21:", res.json())
+
+
+
+#TEST PSBT
+def test_psbt():
+    res = requests.post(
+        f"{BASE}/psbt",
+        json={
+            "psbt": "cHNidP8BAHECAAAAA..."
+        }
+    )
+    print("PSBT:", res.json())
+
+
+# -------------------------
+# RUN
+# -------------------------
+if __name__ == "__main__":
+    test_bip21()
+    test_psbt()

@@ -111,11 +111,7 @@ async def startup():
                 error_code={}
             )
 
-            await asyncio.to_thread(
-                insert_psbt,{
-                    psbt
-                }
-            )
+            
 
             psbt_created_handler
         
