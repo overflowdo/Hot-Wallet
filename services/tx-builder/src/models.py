@@ -109,8 +109,8 @@ async def create_psbt(
     source_address: str | None = None,
     sha256: str | None = None,
     state: str,
-    meta: dict | None = None,
-    error_code: dict | None = None,
+    meta: dict[str, Any] = Field(default_factory=dict),
+    error_code: dict[str, Any] = Field(default_factory=dict)
 ) -> PSBTModel:
 
     if sha256 is None:

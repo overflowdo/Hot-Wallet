@@ -82,16 +82,16 @@ async def handle_intent_build(msg):
         log.error("nats_not_initialized")
         return
     
-    intent = await create_paymentIntent_msg()
+    intent = await create_paymentIntent_msg(msg.data.decode())
 
     try:
-        if not intent.psbt_id:
+        if not intent.id:
             return
 
         # build psbt
         psbt = await build_psbt_for_intent(intent)
 
-        if psbt is None or not psbt.success:
+        if psbt.psbt == "":
             #metrics logging
             PSBT_BUILT_TOTAL.labels(result="failed").inc()
             INTENTS_TOTAL.labels(type="refill", result="no-psbt").inc()
@@ -106,19 +106,10 @@ async def handle_intent_build(msg):
                 )
             return
 
-        if isinstance(psbt.psbt, str):
-            psbt.psbt = base64.b64decode(psbt.psbt)
-        elif isinstance(psbt.psbt, bytes):
-            print() ######################################################
-        else:
-            raise ValueError("Invalid PSBT format")
-
         #metrics logging
         PSBT_BUILT_TOTAL.labels(result="ok").inc()
         INTENTS_TOTAL.labels(type="refill", result="psbt-created").inc()
 
-        psbt.psbt = base64.b64encode(psbt.psbt).decode(),
-        psbt.sha256 = sha256(psbt.psbt),
         psbt.meta = psbt.meta | {"created_utc": utc_now_iso()}
 
         if nc:
@@ -142,17 +133,6 @@ async def build_psbt_for_intent(intent: PaymentIntent) -> PSBTModel:
     intent_id = intent.id
     target_address = intent.target_address
     #change_desc = None
-    changeWallet_name = intent.wallet_type
-
-    amount_sats = int(intent.get("amount_sats", 0))
-    if amount_sats <= 0:
-        log.warning("invalid_amount", extra={
-            "intent_id": intent_id,
-            "amount_sats": amount_sats
-        })
-        intent.error_code = "INVALID_AMOUNT"
-        intent.meta = intent.meta | {"success=False"}
-        return intent
 
     #Variieren nach auszuführender Aktion
     if intent.type == "refill":
@@ -164,12 +144,10 @@ async def build_psbt_for_intent(intent: PaymentIntent) -> PSBTModel:
         #change_desc = HOT_WALLET_DESC
         changeWallet_name = HOT_WALLET_NAME
         wallet_type = "hot"
-        #target_address = intent.get("target_address", "") richtig, aber beim testing gerade schwierig#########################################################################################
-        target_address = get_outputAddress(intent.target_address)
+        target_address = intent.target_address
 
     else:
-        intent.meta = intent.meta | {"success=False"}
-        return create_psbt(
+        return await create_psbt(
             psbt_id = intent.id,
             wallet_type = wallet_type,
             psbt =  "",
@@ -178,10 +156,30 @@ async def build_psbt_for_intent(intent: PaymentIntent) -> PSBTModel:
             target_address = target_address,
             source_address = intent.source_address,
             state = "PSBT_CREATED",
-            meta = intent.meta,
+            meta = intent.meta | {"success=False"},
             error_code = "UNKNOWN_INTENT_TYPE"
         )
-    
+
+    amount_sats = int(intent.amount_sats)
+    if amount_sats <= 0:
+        log.warning("invalid_amount", extra={
+            "intent_id": intent_id,
+            "amount_sats": amount_sats
+        })
+
+        return await create_psbt(
+            psbt_id = intent.id,
+            wallet_type = wallet_type,
+            psbt =  "",
+            network = intent.network,
+            amount_sats = intent.amount_sats,
+            target_address = target_address,
+            source_address = intent.source_address,
+            state = "PSBT_CREATED",
+            meta = intent.meta | {"success=False"},
+            error_code = "INVALID_AMOUNT"
+        )
+
     #change_address = get_changeAddress(changeWallet_name)
     
     #sats → BTC
@@ -191,14 +189,13 @@ async def build_psbt_for_intent(intent: PaymentIntent) -> PSBTModel:
         target_address: amount_btc
     }
 
-    #Vorher manuell fee stabilisierung + block abgragung bei RPC
+    #früher manuell fee stabilisierung + block abgragung bei RPC
     #Dann direkte Methode gefunden
     try:
         result = get_psbt(outputs, changeWallet_name)
         
     except Exception as e:
-        intent.meta = intent.meta | {"success=False"} | {"message": str(e)}
-        return create_psbt(
+        return await create_psbt(
             psbt_id = intent.id,
             wallet_type = wallet_type,
             psbt =  "",
@@ -207,21 +204,27 @@ async def build_psbt_for_intent(intent: PaymentIntent) -> PSBTModel:
             target_address = target_address,
             source_address = intent.source_address,
             state = "PSBT_CREATED",
-            meta = intent.meta,
+            meta = intent.meta | {"success=False"} | {"message": str(e)},
             error_code = "RPC_ERROR"
         )
     
-    psbt = result.psbt
+    psbt = result.get("psbt")
 
-    fee_btc = result.fee
+    fee_btc = result.get("fee")
     fee_sats = int(fee_btc * 1e8)
 
-    fee_rate = result.fee_rate
-
-    changepos = result.get("changepos", None)
+    changepos = result.get("changepos")
 
 
-    psbt_bytes = base64.b64decode(psbt) if isinstance(psbt, str) else psbt
+    if isinstance(psbt.psbt, str):
+        psbt_bytes = base64.b64decode(psbt.psbt)
+    elif isinstance(psbt.psbt, bytes):
+        psbt_bytes = psbt.psbt
+    else:
+        raise ValueError("Invalid PSBT format")
+
+    psbt.psbt = base64.b64encode(psbt_bytes).decode() #Extern Base64 string
+    psbt.sha256 = sha256(psbt_bytes) #Intern bytes
 
     log.info(
         "psbt_created_core",
@@ -229,19 +232,18 @@ async def build_psbt_for_intent(intent: PaymentIntent) -> PSBTModel:
             "intent_id": intent.id,
             "fee_sats": fee_sats,
             "changepos": changepos,
-            "fee_rate": result.get("fee_rate"),
-            "sha256": sha256(psbt_bytes)
+            "sha256": psbt.sha256
         }
     )
 
-    psbt = create_psbt(
+    psbt = await create_psbt(
         psbt_id = intent.id,
         wallet_type = wallet_type,
-        psbt =  psbt_bytes,
+        psbt =  psbt.psbt,
         network = intent.network,
         amount_sats = intent.amount_sats,
         fee_sats = fee_sats,
-        fee_rate = fee_rate,
+        fee_rate = "",
         changepos = changepos,
         target_address = target_address,
         source_address = intent.source_address,

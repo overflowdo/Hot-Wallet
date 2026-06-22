@@ -117,7 +117,7 @@ async def startup():
         #Inkludiert nur logging
         await handle_psbt_created(psbt)
 
-        if opa_evaluate(psbt):
+        if await opa_evaluate(psbt):
             #refill und hot-tx müssen gesigned werden
             #Weiterleitung zum Signer
             signed = await sign_psbt(psbt)

@@ -22,6 +22,7 @@ END $$;
 
 CREATE TABLE IF NOT EXISTS btc.wallet (
     wallet_id        TEXT PRIMARY KEY,
+    wallet_name        TEXT NOT NULL
     wallet_type      btc.wallet_type NOT NULL,
     network          TEXT NOT NULL,
 
@@ -41,7 +42,7 @@ CREATE TABLE IF NOT EXISTS btc.wallet (
 -- -----------------------------
 CREATE TABLE IF NOT EXISTS btc.psbt (
   id               bigserial PRIMARY KEY,
-  psbt_id          TEXT NOT NULL UNIQUE,
+  psbt_id          TEXT NOT NULL,
   psbt_type        btc.psbt_type NOT NULL,
   psbt_state       btc.psbt_state NOT NULL DEFAULT 'INTENT_CREATED',
   network          TEXT NOT NULL DEFAULT 'regtest',

@@ -53,7 +53,7 @@ def test_bip21(wallet_name_target):
 
 
 #TEST PSBT
-def test_psbt(wallet_name_target: str, wallet_name_source: str):
+def test_psbt(wallet_name_target: str, wallet_name_source: str, lockTime: int):
     rpc_res_w2 = rpc_call(f"{RPC_URL}/wallet/{wallet_name_target}", "getnewaddress", ["BIP21-Empfang", "bech32"])
     target_address = rpc_res_w2["result"]
     print(f" Zieladresse (wallet2): {target_address}")
@@ -96,4 +96,4 @@ def test_psbt(wallet_name_target: str, wallet_name_source: str):
 #RUN
 if __name__ == "__main__":
     test_bip21("wallet2")
-    test_psbt("wallet2", "keyA")
+    test_psbt("wallet2", "keyA", 6)

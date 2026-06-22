@@ -84,6 +84,7 @@ def fetch_all(query: str, params: tuple = ()):
 #One time pro wallet
 def create_wallet(
     wallet_id: str,
+    wallet_name: str,
     wallet_type: str,
     network: str,
     xpub: str | None,
@@ -97,6 +98,7 @@ def create_wallet(
                 """
                 INSERT INTO btc.wallet (
                     wallet_id,
+                    wallet_name,
                     wallet_type,
                     network,
                     xpub,
@@ -104,7 +106,7 @@ def create_wallet(
                     master_fingerprint,
                     descriptor
                 )
-                VALUES (%s,%s,%s,%s,%s,%s,%s)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
                 ON CONFLICT (wallet_id)
                 DO UPDATE SET
                     xpub = EXCLUDED.xpub,
@@ -113,6 +115,7 @@ def create_wallet(
                 """,
                 (
                     wallet_id,
+                    wallet_name,
                     wallet_type,
                     network,
                     xpub,
@@ -207,7 +210,7 @@ def insert_opa_decision(
                 actor,
                 allow,
                 reasons,
-                json.dumps(input_data),
+                json.dumps(input_data.model_dump())),
                 json.dumps(result)
             ))
 

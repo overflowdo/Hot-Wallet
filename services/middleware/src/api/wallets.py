@@ -39,6 +39,7 @@ async def add_wallet(request: Request, metadata: dict = Body(...)):
     await asyncio.to_thread(
         create_wallet,
         wallet_id,
+        wallet_name,
         metadata.get("wallet_type") or "external",
         metadata.get("network"),
         metadata.get("xpub",""),
@@ -51,6 +52,7 @@ async def add_wallet(request: Request, metadata: dict = Body(...)):
         "Wallet imported",
         extra={
             "wallet_id": wallet_id,
+            "wallet_name": wallet_name,
             "wallet_type": metadata.get("wallet_type") or "external",
             "network": metadata.get("network"),
             "xpub ": metadata.get("xpub",""),

@@ -60,7 +60,7 @@ async def create_paymentIntent_msg(
 
     return await create_paymentIntent(
         id=data.get("id"),
-        type=data.get("type")
+        type=data.get("type"),
         rail=data["rail"],
         network=data.get("network", "regtest"),
         amount_sats=data.get("amount_sats"),
