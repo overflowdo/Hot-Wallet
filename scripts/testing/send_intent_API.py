@@ -4,7 +4,7 @@ from urllib.parse import quote
 
 BASE = "http://localhost:8080/api/v1/request"
 
-RPC_URL = "http://192.168.99.58:18443"
+RPC_URL = "http://localhost:18443"
 RPC_USER = "user"
 RPC_PASS = "pass"
 

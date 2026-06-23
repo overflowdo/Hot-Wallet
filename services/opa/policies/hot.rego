@@ -4,49 +4,66 @@ import rego.v1
 
 default allow := false
 
-allow if {
-    input_valid
-    count(deny) == 0
+allow if{
+  count(deny) == 0
 }
 
 decision := {
-    "allow": allow,
-    "reasons": deny,
-    "limits": limits
+  "allow": allow,
+  "reasons": deny,
+  "limits": limits
 }
 
 limits := data.hot.limits
 
-################################################################################
-# Input validation
-################################################################################
+#Input validation
 
-input_valid if {
-    input.amount_sats > 0
-    input.psbt_id != ""
-    input.psbt != ""
-    input.source_address != ""
-    input.target_address != ""
-    input.network != ""
-    input.fee != ""
-    input.network != ""
+deny["missing psbt_id"] if {
+    object.get(input, "psbt_id", "") == ""
 }
 
-################################################################################
-# Deny rules
-################################################################################
-
-deny["network not allowed"] if {
-    not data.networks.allowed[input.network]
+deny["missing wallet_type"] if {
+    object.get(input, "wallet_type", "") == ""
 }
 
-deny["amount exceeds limit"] if {
-    input.amount_sats > data.hot.limits.max_amount_sats
+deny["missing psbt"] if {
+    object.get(input, "psbt", "") == ""
 }
 
-################################################################################
-# Fee checks
-################################################################################
+deny["missing source address"] if {
+    object.get(input, "source_address", "") == ""
+}
+
+deny["missing target address"] if {
+    object.get(input, "target_address", "") == ""
+}
+
+deny["missing network"] if {
+    object.get(input, "network", "") == ""
+}
+
+deny["invalid amount"] if {
+    object.get(input, "amount_sats", 0) <= 0
+}
+
+deny["network not allowed"] if{
+  not data.networks.allowed[input.network]
+}
+
+deny["amount exceeds limit"] if{
+  input.amount_sats > data.hot.limits.max_amount_sats
+}
+
+#Später extra authentifizierung? hex code im meta?
+deny["tag required"] if{
+  data.hot.require_tag == true
+  not input.meta.tag
+}
+
+deny["missing psbt hash"] if {
+    data.hot.require_sha256
+    input.sha256 == ""
+}
 
 deny["fee exceeds limit"] if {
     input.fee_sats != null
@@ -63,20 +80,6 @@ deny["fee rate below minimum"] if {
     input.fee_rate < data.hot.limits.min_fee_rate_sat_vb
 }
 
-################################################################################
-# Optional SHA256 integrity
-################################################################################
-
-deny["missing psbt hash"] if {
-    data.hot.require_sha256
-    input.sha256 == ""
-}
-
-################################################################################
-# Optional tag
-################################################################################
-
-deny["tag required"] if {
-    data.hot.require_tag
-    not input.meta.tag
+deny["wallet type must be hot"] if {
+    object.get(input, "wallet_type", "") != "hot"
 }

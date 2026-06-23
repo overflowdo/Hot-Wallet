@@ -89,7 +89,7 @@ def get_ext_walletNames() -> list[str]:
                 WHERE wallet_type = %s
                 AND active = TRUE
             """, ("ext",))
-            return [row[0] for row in cur.fetchall()]
+            return [row["wallet_name"] for row in cur.fetchall()]
 
 #One time pro wallet
 def create_wallet(

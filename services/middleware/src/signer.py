@@ -79,7 +79,7 @@ async def sign_psbt_on_signer(
         psbt_id: str,
         psbt: str,
         sha256: str,
-        psbt_type: str,
+        wallet_type: str,
     ):
     if os.path.isfile(SIGNER_HMAC_SECRET):
         print("Gültige Datei")
@@ -98,7 +98,7 @@ async def sign_psbt_on_signer(
 
     payload = {
         "psbt_id": psbt_id,
-        "psbt_type": psbt_type,
+        "wallet_type": wallet_type,
         "psbt": psbt,
         "sha256": sha256,
     }

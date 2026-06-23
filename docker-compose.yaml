@@ -6,14 +6,14 @@ services:
     environment:
       SERVICE_NAME: tx-builder
       NATS_URL: nats://nats:4222
-      WORK_ROOT: /var/lib/btc-work/psbt-work
+      WORK_ROOT: /run/psbts
 
       DATABASE_URL: postgresql://user:pass@postgres:5432/btc
 
       MIDDLEWARE_URL: http://middleware:8080
 
       BITCOIN_NETWORK: regtest
-      BITCOIND_RPC_URL: http://192.168.99.58:18443
+      BITCOIND_RPC_URL: http://btc-core:18443
       BITCOIND_RPC_USER: user
       BITCOIND_RPC_PASS: pass
 
@@ -48,7 +48,7 @@ services:
       DATABASE_URL: postgresql://user:pass@postgres:5432/btc
 
       BITCOIN_NETWORK: regtest
-      BITCOIND_RPC_URL: http://192.168.99.58:18443
+      BITCOIND_RPC_URL: http://btc-core:18443
       BITCOIND_RPC_USER: user
       BITCOIND_RPC_PASS: pass
 
@@ -105,10 +105,23 @@ services:
     - postgres_data:/run/postgresql/data
     - ./services/postgres/001_psbt.sql:/docker-entrypoint-initdb.d/001_psbt.sql:ro
 
+  btc-core:
+    build: ./services/btc-core
+    container_name: btc-core
+    restart: unless-stopped
+    volumes:
+      - btcCore_data:/root/.bitcoin
+      - ./btc-core/bitcoin.conf:/root/.bitcoin/bitcoin.conf:ro
+    ports:
+      - "18443:18443"
+      - "18444:18444"
+    entrypoint: ["/root/entrypoint.sh"]
+  
+
   
 
 volumes:
   tx_builder_data:
   postgres_data:
-  bitcoind_data:
   middleware_data:
+  btcCore_data:

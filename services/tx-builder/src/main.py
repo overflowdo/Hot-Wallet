@@ -16,7 +16,7 @@ from nats.aio.client import Client as NATS
 
 from .logging_setup import setup_logging
 from .metrics import INTENTS_TOTAL, UTXO_UNSPENT_GAUGE, PSBT_BUILT_TOTAL
-from .bitcoind import get_psbt, get_outputAddress
+from .btc_core import get_psbt, get_outputAddress
 from .models import PSBTModel, create_psbt, PaymentIntent, create_paymentIntent_msg
 
 SERVICE_NAME = os.getenv("SERVICE_NAME", "tx-builder")

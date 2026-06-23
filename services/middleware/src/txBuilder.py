@@ -57,7 +57,7 @@ async def handle_psbt_created(psbt: PSBTModel):
     )
 
 async def whitelist_check(address: str) -> bool:
-    wallet_names = get_ext_walletNames
+    wallet_names = get_ext_walletNames()
     for walletName in wallet_names:
         if address_wallet_match(walletName, address):
             return True

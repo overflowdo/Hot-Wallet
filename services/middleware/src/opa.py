@@ -31,6 +31,7 @@ async def send_to_opa(psbt: PSBTModel) -> dict:
         raw = resp.json().get("result", {})
 
         reasons_raw = raw.get("reasons", {})
+        
         # normalize reasons into list
         if isinstance(reasons_raw, dict):
             reasons = [k for k, v in reasons_raw.items() if v]
@@ -48,14 +49,16 @@ async def send_to_opa(psbt: PSBTModel) -> dict:
 
 def to_opa_input(psbt: PSBTModel) -> dict:
     return {
+        "psbt_id": psbt.psbt_id,
+        "wallet_type": psbt.wallet_type,
+        "psbt": psbt.psbt,
         "network": psbt.network,
         "target_address": psbt.target_address,
+        "source_address": psbt.target_address,
 
         "amount_sats": psbt.amount_sats,
         "fee_sats": psbt.fee_sats,
         "fee_rate": psbt.fee_rate,
-        "changepos": psbt.changepos,
-
     }
     
 

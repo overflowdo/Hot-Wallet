@@ -2,7 +2,10 @@ import requests
 import json
 import os
 
-API_URL = os.getenv("WALLET_API_URL", "http://localhost:8000/api/v1/importWallet")
+BASE = "http://localhost:8080/api/v1/request/importWallet"
+from pathlib import Path
+
+
 
 
 def import_external_wallet(
@@ -24,7 +27,7 @@ def import_external_wallet(
     }
 
     r = requests.post(
-        API_URL,
+        BASE,
         json=payload,
         headers={"Content-Type": "application/json"}
     )
@@ -36,10 +39,13 @@ def import_external_wallet(
 
 
 if __name__ == "__main__":
+    file_path = Path("./data/wallet2.descriptors.json")
+    with file_path.open(mode="r", encoding="utf-8") as file:
+        content = file.read()
     result = import_external_wallet(
         wallet_name="wallet2",
         network="regtest",
-        descriptor=""
+        descriptor=content
     )
 
     print(json.dumps(result, indent=2))
