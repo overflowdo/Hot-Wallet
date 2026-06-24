@@ -17,13 +17,6 @@ services:
       BITCOIND_RPC_USER: user
       BITCOIND_RPC_PASS: pass
 
-      MAX_FEE_SATS: 5000
-      MAX_FEE_RATE_SAT_VB: 50
-      FEE_TOLERANCE_SATS: 10
-      DEFAULT_INPUT_VBYTES: 104
-      DEFAULT_OUTPUT_VBYTES: 31
-      DUST_LIMIT: 546
-
     volumes:
       - tx_builder_data:/run/psbts
     depends_on:
@@ -48,9 +41,9 @@ services:
       DATABASE_URL: postgresql://user:pass@postgres:5432/btc
 
       BITCOIN_NETWORK: regtest
-      BITCOIND_RPC_URL: http://btc-core:18443
-      BITCOIND_RPC_USER: user
-      BITCOIND_RPC_PASS: pass
+      BTC-CORE_RPC_URL: http://btc-core:18443
+      BTC-CORE_RPC_USER: user
+      BTC-CORE_RPC_PASS: pass
 
       SIGNER_HMAC_SECRET: /run/secrets/signer-hmac.secret
     depends_on:
@@ -111,7 +104,7 @@ services:
     restart: unless-stopped
     volumes:
       - btcCore_data:/root/.bitcoin
-      - ./btc-core/bitcoin.conf:/root/.bitcoin/bitcoin.conf:ro
+      - ./services/btc-core/src/bitcoin.conf:/root/.bitcoin/bitcoin.conf:ro
     ports:
       - "18443:18443"
       - "18444:18444"

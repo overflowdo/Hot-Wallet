@@ -53,6 +53,7 @@ if mountpoint -q "$USB_MOUNT"; then
 else
   echo "Mounting USB..."
   mount "$USB_DEVICE" "$USB_MOUNT"
+fi
 
 echo "Importing wallets..."
 
@@ -97,11 +98,13 @@ do
 
         jq -n \
           --arg wallet_type "cold" \
+          --arg wallet_name "cold-multi" \
           --arg desc "$(tail -n 1 "$COLD_SIGNER")" \
           --arg network "regtest" \
           '
           {
             wallet_type: $wallet_type,
+            wallet_name: $wallet_name,
             xpub: "",
             descriptor: $desc,
             network: $network,

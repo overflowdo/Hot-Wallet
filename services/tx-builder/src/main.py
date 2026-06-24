@@ -33,17 +33,6 @@ HOT_WALLET_NAME = "keyA"
 COLD_WALLET_DESC = ""
 COLD_WALLET_NAME = "cormorant"
 
-# Fee estimation default config
-DEFAULT_INPUT_VBYTES = int(os.getenv("VIN_VB_P2WSH", "104"))
-DEFAULT_OUTPUT_VBYTES = int(os.getenv("VOUT_VB", "31"))
-FEE_TOLERANCE_SATS = int(os.getenv("FEE_TOLERANCE_SATS", "10"))
-
-#Standard values für TXs
-FEE_TARGET_BLOCKS = int(os.getenv("FEE_TARGET_BLOCKS", "6"))
-MAX_FEE_SATS = int(os.getenv("MAX_FEE_SATS", "50000"))
-MAX_FEE_RATE_SAT_VB = int(os.getenv("MAX_FEE_RATE_SAT_VB", "50"))
-DUST_LIMIT = int(os.getenv("DUST_LIMIT", "50")) 
-
 log = logging.getLogger("tx-builder")
 
 nc: Optional[NATS] = None
@@ -180,7 +169,6 @@ async def build_psbt_for_intent(intent: PaymentIntent) -> PSBTModel:
             error_code = "INVALID_AMOUNT"
         )
 
-    #change_address = get_changeAddress(changeWallet_name)
     
     #sats -> BTC
     amount_btc = amount_sats / 1e8

@@ -8,15 +8,30 @@ from src.db import create_wallet
 from .btc_core import rpc_call
 
 
-RPC_HOST = os.getenv("BTC-NETWORK_IP", "btc-core")
-RPC_PORT = os.getenv("BTC-NETWORK_PORT", 18443)
-
-RPC_URL = f"http://{RPC_HOST}:{RPC_PORT}"
+RPC_URL  = os.getenv("BTC-CORE_RPC_URL", "http://btc-core:18443")
 SERVICE_NAME = os.getenv("SERVICE_NAME", "middleware")
 log = logging.getLogger(SERVICE_NAME)
 
 nc = None
 router = APIRouter()
+
+def normalize(desc_string):
+    #Whitespaces entfernen
+    desc = desc_string.strip()
+
+    #Checksumme abschneiden (Immer # + 8 Zeichen = 9 Zeichen von rechts)
+    if "#" in desc:
+        desc = desc[:-9]
+
+    #Interne/Externe Kombination <0;1> durch reine 0 ersetzen
+    # Ersetzt "/<0;1>/*" mit "/0/*"
+    desc = desc.replace("/<0;1>/*", "/0/*")
+
+    #Falls irgendwo fälschlicherweise der interne Pfad /1/* stand,
+    # wird auch dieser für das externe Skript auf /0/* korrigiert
+    desc = desc.replace("/1/*", "/0/*")
+
+    return desc
 
 
 #Genutzt von wgHMAC.sh
@@ -35,14 +50,9 @@ async def add_wallet(request: Request, metadata: dict = Body(...)):
             status_code=400,
             detail=f"Missing fields: {missing}"
         )
-    wallet_name = ""
-    if metadata.get("wallet_type") == "cold":
-        wallet_name = metadata.get("name") or "cormorant"
-    else:
-        wallet_name = metadata.get("name") or "keyA"
-
-    wallet_id = metadata.get("wallet_id") or wallet_name or metadata["wallet_type"][:12] or metadata["xpub"][:12]
-
+    
+    wallet_name = metadata.get("wallet_name")
+    wallet_id = metadata.get("wallet_id") or wallet_name or metadata["xpub"][:12]
 
     #BTC-CORE registration
     WALLET_RPC_URL = f"{RPC_URL}/wallet/{wallet_name}"
@@ -62,10 +72,19 @@ async def add_wallet(request: Request, metadata: dict = Body(...)):
         rpc_id=f"createwallet {wallet_name}"
     )
     
-    # Externer (/0/*)
-    external_desc = metadata.get("descriptor")
-    # Interner Change-Descriptor (/1/*)
-    internal_desc = metadata.get("descriptor").replace("/0/*", "/1/*")
+    external_desc = normalize(metadata.get("descriptor"))
+    if metadata.get("wallet_type") == "cold" or metadata.get("wallet_type") == "hot":
+        # Interner Change-Descriptor (/1/*)
+        internal_desc = external_desc.replace("/0/*", "/1/*")
+
+        int_desc_info = rpc_call(
+            RPC_URL,
+            "getdescriptorinfo",
+            [internal_desc],
+            rpc_id=f"checksum {wallet_name}"
+        )
+        int_desc = int_desc_info["descriptor"]
+    
 
     # Descriptor mit Checksum versehen
     ext_desc_info = rpc_call(
@@ -76,19 +95,9 @@ async def add_wallet(request: Request, metadata: dict = Body(...)):
     )
     ext_desc = ext_desc_info["descriptor"]
 
-    int_desc_info = rpc_call(
-        RPC_URL,
-        "getdescriptorinfo",
-        [internal_desc],
-        rpc_id=f"checksum {wallet_name}"
-    )
-    int_desc = int_desc_info["descriptor"]
+    
 
-    # Descriptor importieren
-    rpc_call(
-        WALLET_RPC_URL,
-        "importdescriptors",
-        [[
+    desc = [
             {
                 "desc": ext_desc,
                 "timestamp": "now",
@@ -105,7 +114,13 @@ async def add_wallet(request: Request, metadata: dict = Body(...)):
                 "keypool": True,
                 "range": [0, 1000]
             }
-        ]],
+        ]
+
+    # Descriptor importieren
+    rpc_call(
+        WALLET_RPC_URL,
+        "importdescriptors",
+        desc,
         rpc_id=f"import desc {wallet_name}"
     )
 

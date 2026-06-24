@@ -54,8 +54,6 @@ def get_outputAddress(wallet_name: str):
 
 #Alles in einer methode doch BTC CORE
 def get_psbt(outputs, wallet_name, lockTime: int = 0, change_address: str = None):
-    if change_address is None:
-        change_address = get_changeAddress(wallet_name)
     result = rpc_call(
         f"{BITCOIND_RPC_URL}/wallet/{wallet_name}",
         "walletcreatefundedpsbt",
@@ -66,7 +64,6 @@ def get_psbt(outputs, wallet_name, lockTime: int = 0, change_address: str = None
             {
                 "add_inputs": True,
                 #"fee_rate": "1.2",             fee rate nicht direkt angeben. BTC CORE überlassen + OPA kontrolle
-                "changeAddress": change_address,
                 "conf_target": 6,               #confirmation in ungefähr einer stunde (fee für 6 blöcke finden)
                 "includeWatching": True,
                 "replaceable": True,            #Start mit low fee. bei zu langem warten erhöhen ermöglichen
