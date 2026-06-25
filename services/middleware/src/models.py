@@ -2,11 +2,9 @@ from pydantic import BaseModel, Field
 from typing import Optional, Dict, Literal,Any
 import json
 import hashlib
-import asyncio
+import base64
 
 from embit.psbt import PSBT
-from embit.transaction import Transaction
-from embit.script import Script
 from embit.networks import NETWORKS
 
 
@@ -127,7 +125,8 @@ async def create_psbt(
 
 
     if sha256 is None:
-        sha256 = hashlib.sha256(psbt.encode()).hexdigest()
+        psbt_bytes = base64.b64decode(psbt) if isinstance(psbt, str) else psbt
+        sha256 = hashlib.sha256(psbt_bytes).hexdigest()
 
     meta = meta or {}
     error_code = error_code or {}

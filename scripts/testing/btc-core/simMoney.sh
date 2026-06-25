@@ -1,10 +1,10 @@
 #!/bin/bash
 set -e
 
-RPC="docker exec bitcoind-regtest /root/bitcoin-cli -regtest -rpcuser=user -rpcpassword=pass"
+RPC="docker exec btc-core /root/bitcoin-cli -regtest -rpcuser=user -rpcpassword=pass"
 
 ADDR1=$($RPC -rpcwallet=keyA getnewaddress)
-ADDR2=$($RPC -rpcwallet=cormorant getnewaddress)
+ADDR2=$($RPC -rpcwallet=cold-multi getnewaddress)
 
 $RPC -rpcwallet=wallet1 sendtoaddress "$ADDR1" 25
 $RPC -rpcwallet=wallet1 sendtoaddress "$ADDR2" 25

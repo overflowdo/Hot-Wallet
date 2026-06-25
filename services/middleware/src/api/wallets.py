@@ -73,6 +73,8 @@ async def add_wallet(request: Request, metadata: dict = Body(...)):
     )
     
     external_desc = normalize(metadata.get("descriptor"))
+    int_desc = ""
+
     if metadata.get("wallet_type") == "cold" or metadata.get("wallet_type") == "hot":
         # Interner Change-Descriptor (/1/*)
         internal_desc = external_desc.replace("/0/*", "/1/*")
@@ -120,7 +122,7 @@ async def add_wallet(request: Request, metadata: dict = Body(...)):
     rpc_call(
         WALLET_RPC_URL,
         "importdescriptors",
-        desc,
+        [desc],
         rpc_id=f"import desc {wallet_name}"
     )
 

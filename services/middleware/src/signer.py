@@ -130,7 +130,7 @@ async def sign_psbt_on_signer(
         f"Sende asynchrone Anfrage an: {url}",
         extra={
             "psbt_id": psbt_id,
-            "psbt_type": psbt_type,
+            "wallet_type": wallet_type,
             "psbt": psbt,
             "sha256": sha256,
         }

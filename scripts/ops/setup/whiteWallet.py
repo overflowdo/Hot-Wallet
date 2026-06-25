@@ -38,7 +38,7 @@ def import_external_wallet(
 if __name__ == "__main__":
     file_path = Path("./wallet2.descriptors.txt")
     with file_path.open(mode="r", encoding="utf-8") as file:
-        content = file.read()
+        content = file.read().replace("\r", "")
     result = import_external_wallet(
         wallet_name="wallet2",
         network="regtest",

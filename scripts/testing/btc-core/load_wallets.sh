@@ -4,7 +4,7 @@
 #Wichtig für OPA whitelisting
 set -e
 
-RPC="/root/bitcoin-cli -regtest -rpcuser=user -rpcpassword=pass"
+RPC="docker exec btc-core /root/bitcoin-cli -regtest -rpcuser=user -rpcpassword=pass"
  
 until $RPC getblockchaininfo >/dev/null 2>&1; do
     echo "Waiting for Bitcoin RPC..."
@@ -13,25 +13,20 @@ done
  
 restore_wallet() {
   local WALLET=$1
-  local FILE="/root/.bitcoin/wallets/$WALLET.descriptors.json"
  
   echo "Restoring $WALLET..."
  
   # descriptor Wallet neu erstellen
   $RPC createwallet "$WALLET" false false "" false true >/dev/null 2>&1 || true
  
-  # Descriptors extrahieren und importieren
-  DESCS=$(cat "$FILE" | jq -c '.descriptors')
- 
-  $RPC -rpcwallet="$WALLET" importdescriptors "$DESCS"
- 
   echo "Loaded $WALLET"
 }
- 
+
+
+
 restore_wallet "wallet1"
-restore_wallet "wallet2"
 restore_wallet "wallet3"
- 
+
 echo
 echo "Loaded wallets:"
 $RPC listwallets
@@ -39,7 +34,6 @@ $RPC listwallets
 echo "Mining initial blocks..."
 ADDR_FUND=$($RPC -rpcwallet=wallet1 getnewaddress)
 $RPC generatetoaddress 101 "$ADDR_FUND" >/dev/null
- 
  
 echo "Creating addresses..."
 ADDR1=$($RPC -rpcwallet=wallet1 getnewaddress)
