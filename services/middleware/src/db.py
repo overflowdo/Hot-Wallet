@@ -2,7 +2,6 @@ import os
 import json
 import psycopg
 from psycopg.rows import dict_row
-import Json
 
 from .models import PSBTModel, isModel
 
@@ -212,7 +211,7 @@ def insert_opa_decision(
                     raise RuntimeError(f"psbt_id not found: {psbt_id}")
             else: db_psbt_id = psbt_id
 
-            reasons = reasons(result)
+            reasons = normalize(result)
             input_data = normalize(input_data)
             result = normalize(result)
 
@@ -235,7 +234,7 @@ def insert_opa_decision(
                 action,
                 json.dumps(reasons),
                 input_data,
-                Json(result)
+                result
             ))
 
         c.commit()

@@ -65,12 +65,12 @@ CREATE INDEX idx_psbt_psbt_id_created ON btc.psbt (psbt_id, created_utc DESC);
 -- -----------------------------
 CREATE TABLE IF NOT EXISTS btc.opa_decision (
   decision_id      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  psbt_id           BIGINT REFERENCES btc.psbt(id) ON DELETE CASCADE,
+  psbt_id           TEXT,
 
   policy_name      TEXT NOT NULL,              -- e.g. "policy.hot" / "policy.refill"
   actor            TEXT NOT NULL,              -- e.g. "middleware" / "tx-builder" / "policy-signer"
   allowed            BOOLEAN NOT NULL,
-  result           JSONB NOT NULL DEFAULT '{}'::jsonb,
+  reasons           JSONB NOT NULL DEFAULT '{}'::jsonb,
 
   input            JSONB NOT NULL DEFAULT '{}'::jsonb,             -- exact OPA input
   result           JSONB NOT NULL DEFAULT '{}'::jsonb,           -- exact OPA output
@@ -115,7 +115,7 @@ CREATE TABLE IF NOT EXISTS btc.psbt_archive (
     wallet_type        TEXT NOT NULL,
     network            TEXT NOT NULL,
 
-    signed_psbt        JSONB NOT NULL DEFAULT '{}'::jsonb,
+    signed_psbt        TEXT NOT NULL,
   
     -- Finalisierung
     raw_tx             TEXT NOT NULL,
