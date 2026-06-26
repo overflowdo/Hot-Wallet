@@ -6,7 +6,7 @@ from decimal import Decimal
 
 from src.models import create_paymentIntent, PaymentIntent, create_psbt, PSBTModel
 from uuid import uuid4 
-from src.db import psbt_id_exists
+from src.db import psbt_id_exists, get_walletName
 import asyncio
 
 BITCOIN_NETWORK = os.getenv("BITCOIN_NETWORK", "regtest")
@@ -62,12 +62,15 @@ async def request_bip21(request: Request, payload: dict = Body(...)):
         if not exists:
             break
 
+    source_address = get_walletName("hot")
+
     intent = await create_paymentIntent(
         id=intent_id,
         type="hot-tx",
         rail="bip21",
         network=BITCOIN_NETWORK,
         amount_sats=amount_sats,
+        amount_sats=source_address,
         target_address=address,
         meta={
             "label": qs.get("label", [None])[0],
@@ -116,13 +119,15 @@ async def request_psbt(request: Request, payload: dict = Body(...)):
         if not exists:
             break
 
+    source_address = get_walletName("hot")
+
     psbt_model = await create_psbt(
         psbt_id=psbt_id,
         wallet_type="hot",
         psbt=psbt,
         meta={"rail": "psbt"},
         network=BITCOIN_NETWORK,
-        source_address="keyA",
+        source_address=source_address,
         sha256=payload.get("sha256"),
         state="PSBT_CREATED",
     )

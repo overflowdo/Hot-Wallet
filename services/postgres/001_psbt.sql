@@ -12,7 +12,7 @@ BEGIN
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'psbt_state') THEN
-    CREATE TYPE btc.psbt_state AS ENUM ('INTENT_CREATED', 'OPA_APPROVED', 'OPA_REJECTED', 'PSBT_FAILED', 'PSBT_CREATED', 'UNSIGNED', 'WAITING_HUMAN', 'WAITING_RETRY', 'SIGNING_FAILED', 'SIGNED', 'BROADCAST');
+    CREATE TYPE btc.psbt_state AS ENUM ('INTENT_CREATED', 'PSBT_CREATED', 'PSBT_FAILED', 'OPA_APPROVED', 'OPA_REJECTED', 'WAITING_HUMAN', 'WAITING_RETRY', 'SIGNING_FAILED', 'SIGNED', 'BROADCASTED');
   END IF;
   
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'wallet_type') THEN
@@ -69,7 +69,7 @@ CREATE TABLE IF NOT EXISTS btc.opa_decision (
 
   policy_name      TEXT NOT NULL,              -- e.g. "policy.hot" / "policy.refill"
   actor            TEXT NOT NULL,              -- e.g. "middleware" / "tx-builder" / "policy-signer"
-  allow            BOOLEAN NOT NULL,
+  action            BOOLEAN NOT NULL,
   reasons          TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
 
   input            JSONB NOT NULL,             -- exact OPA input
@@ -81,22 +81,6 @@ CREATE TABLE IF NOT EXISTS btc.opa_decision (
 
 -- gen_random_uuid() needs pgcrypto
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
-
--- -----------------------------
--- PSBT METADATA (paths + hashes, no blobs)
--- -----------------------------
-CREATE TABLE IF NOT EXISTS btc.psbt_artifact (
-  artifact_id      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  psbt_id        BIGINT REFERENCES btc.psbt(id) ON DELETE CASCADE,
-
-  -- Where the file lives (USB temp paths are optional; archive path is durable)
-  file_path        TEXT NOT NULL,              -- e.g. "usb:/mnt/usb/psbt/final.<id>.psbt" OR "archive:/psbt-archive/<id>/final.<id>.psbt"
-  sha256           TEXT NOT NULL,
-  size_bytes       BIGINT,
-  created_utc      TIMESTAMPTZ NOT NULL DEFAULT now(),
-
-  UNIQUE(psbt_id)
-);
 
 -- -----------------------------
 -- HOT SIGNING REQUESTS (zu NixOs bei HTTP)
@@ -120,32 +104,36 @@ CREATE TABLE IF NOT EXISTS btc.hot_sign_request (
 CREATE INDEX IF NOT EXISTS idx_hotreq_txid ON btc.hot_sign_request (txid);
 
 -- -----------------------------
--- ARCHIVE INDEX (nicht refreshen, anderen psbt_tables können mit details resetted werden)
+-- ARCHIVE INDEX (keine verbindeungen zu anderen Tabellen
 -- -----------------------------
-CREATE TABLE IF NOT EXISTS btc.archived_tx (
-  id                   TEXT PRIMARY KEY,       -- same <id> used in filenames and archive folder
-  network              TEXT NOT NULL DEFAULT 'regtest',
-  source               TEXT NOT NULL DEFAULT 'manual-usb', -- or "hot-auto"
-  created_utc          TIMESTAMPTZ NOT NULL DEFAULT now(),
+CREATE TABLE IF NOT EXISTS btc.psbt_archive (
+    id                 BIGSERIAL PRIMARY KEY,
+    archived_utc       TIMESTAMPTZ NOT NULL DEFAULT now(),
 
-  txid                 TEXT NOT NULL,
-  broadcast_utc         TIMESTAMPTZ NOT NULL,
-  archived_utc          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- PSBT
+    psbt_id            TEXT NOT NULL,
+    wallet_type        TEXT NOT NULL,
+    network            TEXT NOT NULL,
 
-  archive_path          TEXT NOT NULL,          -- e.g. "psbt-archive/<id>/"
-  final_psbt_path       TEXT NOT NULL,          -- e.g. "/var/lib/btc-archive/psbt-archive/<id>/final.<id>.psbt"
-  final_psbt_sha256     TEXT NOT NULL,
+    psbt               TEXT NOT NULL,
+    signed_psbt        TEXT NOT NULL,
+  
+    -- Finalisierung
+    raw_tx             TEXT NOT NULL,
+    txid               TEXT NOT NULL,
 
-  rawtx_hex_path        TEXT,                   -- optional: "/var/lib/.../rawtx_hex.txt"
-  rawtx_sha256          TEXT,                   -- optional
+    -- Routing
+    source_address     TEXT,
+    target_address     TEXT NOT NULL,
 
-  approval_json_path    TEXT,                   -- optional
-  approval_sig_path     TEXT,                   -- optional
+    -- Beträge
+    amount_sats        BIGINT NOT NULL,
+    fee_sats           BIGINT,
+    fee_rate           DOUBLE PRECISION,
 
-  meta                  JSONB NOT NULL DEFAULT '{}'::jsonb
+    sha256             TEXT,
+
+    meta               JSONB NOT NULL DEFAULT '{}'::jsonb,
 );
-
-CREATE INDEX IF NOT EXISTS idx_archived_tx_txid ON btc.archived_tx (txid);
-CREATE INDEX IF NOT EXISTS idx_archived_tx_broadcast ON btc.archived_tx (broadcast_utc DESC);
 
 COMMIT;

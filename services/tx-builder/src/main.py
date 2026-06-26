@@ -27,12 +27,6 @@ WORK_ROOT = os.getenv("WORK_ROOT", "/var/lib/btc-work/psbt-work")
 
 MIDDLEWARE_URL= os.getenv("MIDDLEWARE_URL","http://middleware:8080")
 
-#BTC config
-HOT_WALLET_DESC = ""
-HOT_WALLET_NAME = "keyA"
-COLD_WALLET_DESC = ""
-COLD_WALLET_NAME = "cormorant"
-
 log = logging.getLogger("tx-builder")
 
 nc: Optional[NATS] = None
@@ -121,19 +115,19 @@ async def handle_intent_build(msg):
 async def build_psbt_for_intent(intent: PaymentIntent) -> PSBTModel:
     intent_id = intent.id
     target_address = intent.target_address
-    #change_desc = None
+
+    confirmation_blocks = 6
+    estimate_mode = "economical"
 
     #Variieren nach auszuführender Aktion
     if intent.type == "refill":
-        changeWallet_name = COLD_WALLET_NAME
         wallet_type = "cold"
-        target_address = get_outputAddress(HOT_WALLET_NAME)
+        target_address = get_outputAddress(intent.target_address)
+        confirmation_blocks = intent.get("meta").get("confirmation_blocks")
+        estimate_mode = intent.get("meta").get("estimate_mode")
         
     elif intent.type == "hot-tx":
-        #change_desc = HOT_WALLET_DESC
-        changeWallet_name = HOT_WALLET_NAME
         wallet_type = "hot"
-        target_address = intent.target_address
 
     else:
         return await create_psbt(
@@ -143,7 +137,7 @@ async def build_psbt_for_intent(intent: PaymentIntent) -> PSBTModel:
             network = intent.network,
             amount_sats = intent.amount_sats,
             target_address = target_address,
-            source_address = changeWallet_name,
+            source_address = intent.source_address,
             state = "PSBT_FAILED",
             meta = intent.meta | {"success=False"},
             error_code = "UNKNOWN_INTENT_TYPE"
@@ -163,7 +157,7 @@ async def build_psbt_for_intent(intent: PaymentIntent) -> PSBTModel:
             network = intent.network,
             amount_sats = intent.amount_sats,
             target_address = target_address,
-            source_address = changeWallet_name,
+            source_address = intent.source_address,
             state = "PSBT_FAILED",
             meta = intent.meta | {"success=False"},
             error_code = "INVALID_AMOUNT"
@@ -180,7 +174,7 @@ async def build_psbt_for_intent(intent: PaymentIntent) -> PSBTModel:
     #früher manuell fee stabilisierung + block abgragung bei RPC
     #Dann direkte Methode gefunden
     try:
-        result = get_psbt(outputs, changeWallet_name)
+        result = get_psbt(outputs, intent.source_address, estimate_mode, confirmation_blocks)
         
     except Exception as e:
         return await create_psbt(
@@ -190,7 +184,7 @@ async def build_psbt_for_intent(intent: PaymentIntent) -> PSBTModel:
             network = intent.network,
             amount_sats = intent.amount_sats,
             target_address = target_address,
-            source_address = changeWallet_name,
+            source_address = intent.source_address,
             state = "PSBT_FAILED",
             meta = intent.meta | {"success=False"} | {"message": str(e)},
             error_code = "RPC_ERROR"
@@ -228,7 +222,7 @@ async def build_psbt_for_intent(intent: PaymentIntent) -> PSBTModel:
         fee_rate = None,
         changepos = changepos,
         target_address = target_address,
-        source_address = changeWallet_name,
+        source_address = intent.source_address,
         sha256=check_sha256,
         state = "PSBT_CREATED",
         meta = intent.meta,
@@ -236,26 +230,6 @@ async def build_psbt_for_intent(intent: PaymentIntent) -> PSBTModel:
     )
 
 
-async def handle_newWallet(msg):
-    wallet = json.loads(msg.data.decode("utf-8"))
-    if wallet["wallet_type"] == "hot":
-        global HOT_WALLET_DESC
-        HOT_WALLET_DESC = wallet["desc"]
-        global HOT_WALLET_NAME
-        HOT_WALLET_NAME = wallet["name"]
-    elif wallet["wallet_type"] == "cold": 
-        global COLD_WALLET_DESC
-        COLD_WALLET_DESC = wallet["desc"]
-        global COLD_WALLET_NAME
-        COLD_WALLET_NAME = wallet["name"]
-
-    log.info(
-        "wallet_created",
-        extra={
-            "wallet_id": wallet["wallet_id"],
-        }
-    )
-    
 
 @app.on_event("startup")
 async def startup():
@@ -278,11 +252,6 @@ async def startup():
     await nc.subscribe(
         "psbt.build.requested",
         cb=handle_intent_build
-    )
-
-    await nc.subscribe(
-        "newWallet.registered",
-        cb=handle_newWallet
     )
 
     log.info(

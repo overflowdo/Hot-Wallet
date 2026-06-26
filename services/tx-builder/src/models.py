@@ -9,12 +9,11 @@ class PaymentIntent(BaseModel):
 
     type: Literal["hot-tx", "refill"]
 
-    rail: Literal["bip21", "psbt"]
+    rail: Literal["bip21", "psbt", "OPA"]
 
     network: str
 
     amount_sats: Optional[int] = None
-    amount_msat: Optional[int] = None
 
     source_address: Optional[str] = None
     target_address: Optional[str] = None

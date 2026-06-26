@@ -61,8 +61,5 @@ async def whitelist_check(address: str) -> bool:
     for walletName in wallet_names:
         if address_wallet_match(walletName, address):
             return True
-
+    log.info(f"Address does not belong to whitelisted wallet: {address}")
     return False
-
-
-

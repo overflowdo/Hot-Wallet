@@ -79,6 +79,17 @@ def fetch_all(query: str, params: tuple = ()):
             cur.execute(query, params)
             return cur.fetchall()
         
+def get_walletName(type: str) -> list[str]:
+    with conn() as c:
+        with c.cursor() as cur:
+            cur.execute("""
+                SELECT wallet_name
+                FROM btc.wallet
+                WHERE wallet_type = %s
+                AND active = TRUE
+            """, (type,))
+            return [row["wallet_name"] for row in cur.fetchone()]
+        
         
 def get_ext_walletNames() -> list[str]:
     with conn() as c:
@@ -137,9 +148,47 @@ def create_wallet(
 
         c.commit()
 
-def archive_psbt(psbt: PSBTModel):
-    return
-
+def archive_psbt(data: dict):
+    with conn() as c:
+        with c.cursor() as cur:
+            cur.execute("""
+                INSERT INTO btc.psbt_archive (
+                    psbt_id,
+                    wallet_type,
+                    network,
+                    psbt,
+                    signed_psbt,
+                    raw_tx,
+                    txid,
+                    source_address,
+                    target_address,
+                    amount_sats,
+                    fee_sats,
+                    fee_rate,
+                    sha256,
+                    meta,
+                )
+                VALUES (
+                    %s,%s,%s,%s,%s,%s,%s,%s,
+                    %s,%s,%s,%s,%s,%s
+                )
+            """, (
+                data["psbt_id"],
+                data["wallet_type"],
+                data.get("network", "regtest"),
+                data["psbt"],
+                json.dumps(data.get("signed_psbt")),
+                data.get("raw_tx"),
+                data.get("txid"),
+                data["source_address"],
+                data["target_address"],
+                data["amount_sats"],
+                data.get("fee_sats"),
+                data.get("fee_rate"),
+                data.get("sha256"),
+                json.dumps(data.get("meta", {}))
+            ))
+        c.commit()
 
 #State logging für psbts (unterscheidung zu intent möglcih, aber unnötig kompliziert)
 def insert_psbt(psbt: PSBTModel):

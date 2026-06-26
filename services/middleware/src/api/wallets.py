@@ -15,35 +15,29 @@ log = logging.getLogger(SERVICE_NAME)
 nc = None
 router = APIRouter()
 
-def normalize(desc_string):
-    #Whitespaces entfernen
+import json
+import asyncio
+from fastapi import APIRouter, Request, Body, HTTPException
+
+router = APIRouter()
+
+def normalize(desc_string: str) -> str:
+    # Whitespaces entfernen
     desc = desc_string.strip()
 
-    #Checksumme abschneiden (Immer # + 8 Zeichen = 9 Zeichen von rechts)
+    # Checksumme abschneiden (Immer # + 8 Zeichen = 9 Zeichen von rechts)
     if "#" in desc:
         desc = desc[:-9]
-
-    #Interne/Externe Kombination <0;1> durch reine 0 ersetzen
-    # Ersetzt "/<0;1>/*" mit "/0/*"
-    desc = desc.replace("/<0;1>/*", "/0/*")
-
-    #Falls irgendwo fälschlicherweise der interne Pfad /1/* stand,
-    # wird auch dieser für das externe Skript auf /0/* korrigiert
-    desc = desc.replace("/1/*", "/0/*")
 
     return desc
 
 
-#Genutzt von wgHMAC.sh
-#Laden von cold und hot-wallet in die DB
-#To Do ZMQ listening service für UTXO changes
 @router.post("/api/v1/importWallet")
 async def add_wallet(request: Request, metadata: dict = Body(...)):
     nc = request.app.state.nc
 
-    #Load data out of API call
-    required_fields = ["wallet_type", "network", "xpub"]
-
+    # Load data out of API call
+    required_fields = ["wallet_type", "network"]
     missing = [f for f in required_fields if f not in metadata]
     if missing:
         raise HTTPException(
@@ -52,9 +46,10 @@ async def add_wallet(request: Request, metadata: dict = Body(...)):
         )
     
     wallet_name = metadata.get("wallet_name")
-    wallet_id = metadata.get("wallet_id") or wallet_name or metadata["xpub"][:12]
+    xpub_backup = metadata.get("xpub", "")
+    wallet_id = metadata.get("wallet_id") or wallet_name or xpub_backup[:12] or "unknown_id"
 
-    #BTC-CORE registration
+    # BTC-CORE registration
     WALLET_RPC_URL = f"{RPC_URL}/wallet/{wallet_name}"
 
     # Wallet erzeugen
@@ -63,48 +58,36 @@ async def add_wallet(request: Request, metadata: dict = Body(...)):
         "createwallet",
         [
             wallet_name,
-            True,   #Disable priv keys
-            True,   #blank wallet
+            True,   # Disable priv keys
+            True,   # blank wallet
             "",
             False,
-            True    #descriptor (neue Architektur)
+            True    # descriptor (neue Architektur)
         ],
         rpc_id=f"createwallet {wallet_name}"
     )
-    
-    external_desc = normalize(metadata.get("descriptor"))
-    int_desc = ""
 
-    if metadata.get("wallet_type") == "cold" or metadata.get("wallet_type") == "hot":
-        # Interner Change-Descriptor (/1/*)
-        internal_desc = external_desc.replace("/0/*", "/1/*")
+    raw_desc = metadata.get("descriptor", "")
+    if "#" in raw_desc:
+        raw_desc = raw_desc[:-9]
 
-        int_desc_info = rpc_call(
-            RPC_URL,
-            "getdescriptorinfo",
-            [internal_desc],
-            rpc_id=f"checksum {wallet_name}"
-        )
-        int_desc = int_desc_info["descriptor"]
-    
+    if not raw_desc:
+        raise HTTPException(status_code=400, detail="Descriptor is empty")
 
-    # Descriptor mit Checksum versehen
-    ext_desc_info = rpc_call(
-        RPC_URL,
-        "getdescriptorinfo",
-        [external_desc],
-        rpc_id="checksum"
-    )
-    ext_desc = ext_desc_info["descriptor"]
+    desc_payload = []
 
-    
+    # Descriptor mit Checksum versehen via Bitcoin Core
+    desc_info = rpc_call(RPC_URL, "getdescriptorinfo", [raw_desc], rpc_id="checksum_multipath")
+    if "multipath_expansion" in desc_info and len(desc_info["multipath_expansion"]) >= 2:
+        ext_desc = desc_info["multipath_expansion"][0]
+        int_desc = desc_info["multipath_expansion"][1]
 
-    desc = [
+        desc_payload = [
             {
                 "desc": ext_desc,
                 "timestamp": "now",
                 "active": True,
-                "internal": False,
+                "internal": False,  # Externe Empfangsadressen
                 "keypool": True,
                 "range": [0, 1000]
             },
@@ -112,20 +95,31 @@ async def add_wallet(request: Request, metadata: dict = Body(...)):
                 "desc": int_desc,
                 "timestamp": "now",
                 "active": True,
-                "internal": True,
+                "internal": True,   # Interne Wechselgeld-Adressen (Change)
                 "keypool": True,
                 "range": [0, 1000]
             }
         ]
+    else:
+        desc_payload = [
+            {
+                "desc": desc_info["descriptor"],
+                "timestamp": "now",
+                "active": True,
+                "internal": False,
+                "keypool": True,
+                "range": [0, 1000]
+            }
+        ]
+    
 
-    # Descriptor importieren
+    # Descriptoren in Bitcoin Core importieren
     rpc_call(
         WALLET_RPC_URL,
         "importdescriptors",
-        [desc],
+        [desc_payload],
         rpc_id=f"import desc {wallet_name}"
     )
-
 
     # Wallet prüfen
     wallet_info = rpc_call(
@@ -135,17 +129,16 @@ async def add_wallet(request: Request, metadata: dict = Body(...)):
         rpc_id=f"info: {wallet_name}"
     )
 
-
-    #Write to DB
+    # Write to DB
     await asyncio.to_thread(
         create_wallet,
         wallet_id,
         wallet_name,
         metadata.get("wallet_type") or "external",
         metadata.get("network"),
-        metadata.get("xpub",""),
+        xpub_backup,
         metadata.get("derivation_path", ""),
-        metadata.get("master_fingerprint", ""),
+        metadata.get("fingerprint", ""),
         metadata.get("descriptor")
     )
 
@@ -156,18 +149,12 @@ async def add_wallet(request: Request, metadata: dict = Body(...)):
             "wallet_name": wallet_name,
             "wallet_type": metadata.get("wallet_type") or "external",
             "network": metadata.get("network"),
-            "xpub ": metadata.get("xpub",""),
+            "xpub": xpub_backup,
             "derivation_path": metadata.get("derivation_path", ""),
-            "master_finderprint": metadata.get("master_fingerprint", ""),
+            "fingerprint": metadata.get("fingerprint", ""),
             "descriptor": metadata.get("descriptor"),
             "wallet_info": json.dumps(wallet_info, indent=2)
         }
-    )
-
-    #Export for tx-builder
-    await nc.publish(
-        "newWallet.registered",
-        json.dumps({"wallet_id": wallet_id, "wallet_type": metadata.get("wallet_type"), "desc": metadata["descriptor"], "name": wallet_name}).encode()
     )
 
     return {
