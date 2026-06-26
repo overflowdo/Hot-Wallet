@@ -62,7 +62,7 @@ async def request_bip21(request: Request, payload: dict = Body(...)):
         if not exists:
             break
 
-    source_address = get_walletName("hot")
+    source_address = get_walletName("hot")[0]
 
     intent = await create_paymentIntent(
         id=intent_id,
@@ -70,7 +70,7 @@ async def request_bip21(request: Request, payload: dict = Body(...)):
         rail="bip21",
         network=BITCOIN_NETWORK,
         amount_sats=amount_sats,
-        amount_sats=source_address,
+        source_address=source_address,
         target_address=address,
         meta={
             "label": qs.get("label", [None])[0],
@@ -119,7 +119,7 @@ async def request_psbt(request: Request, payload: dict = Body(...)):
         if not exists:
             break
 
-    source_address = get_walletName("hot")
+    source_address = get_walletName("hot")[0]
 
     psbt_model = await create_psbt(
         psbt_id=psbt_id,

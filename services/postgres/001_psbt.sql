@@ -12,7 +12,7 @@ BEGIN
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'psbt_state') THEN
-    CREATE TYPE btc.psbt_state AS ENUM ('INTENT_CREATED', 'PSBT_CREATED', 'PSBT_FAILED', 'OPA_APPROVED', 'OPA_REJECTED', 'WAITING_HUMAN', 'WAITING_RETRY', 'SIGNING_FAILED', 'SIGNED', 'BROADCASTED');
+    CREATE TYPE btc.psbt_state AS ENUM ('INTENT_CREATED', 'PSBT_CREATED', 'PSBT_FAILED', 'OPA_APPROVED', 'OPA_REJECTED', 'WAITING_HUMAN', 'WAITING_RETRY', 'SIGNING_FAILED', 'SIGNED', 'PSBT_FINALIZED', 'BROADCASTED');
   END IF;
   
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'wallet_type') THEN
@@ -69,11 +69,11 @@ CREATE TABLE IF NOT EXISTS btc.opa_decision (
 
   policy_name      TEXT NOT NULL,              -- e.g. "policy.hot" / "policy.refill"
   actor            TEXT NOT NULL,              -- e.g. "middleware" / "tx-builder" / "policy-signer"
-  action            BOOLEAN NOT NULL,
-  reasons          TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+  allowed            BOOLEAN NOT NULL,
+  result           JSONB NOT NULL DEFAULT '{}'::jsonb,
 
-  input            JSONB NOT NULL,             -- exact OPA input
-  result           JSONB NOT NULL,             -- exact OPA output
+  input            JSONB NOT NULL DEFAULT '{}'::jsonb,             -- exact OPA input
+  result           JSONB NOT NULL DEFAULT '{}'::jsonb,           -- exact OPA output
 
   created_utc      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -87,7 +87,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 -- -----------------------------
 CREATE TABLE IF NOT EXISTS btc.hot_sign_request (
   request_id           TEXT PRIMARY KEY,       -- idempotency key (from middleware)
-  psbt_id            BIGINT REFERENCES btc.psbt(id) ON DELETE SET NULL,
+  psbt_id            TEXT,
 
   network              TEXT NOT NULL DEFAULT 'regtest',
   state                btc.psbt_state NOT NULL DEFAULT 'WAITING_RETRY',
@@ -115,8 +115,7 @@ CREATE TABLE IF NOT EXISTS btc.psbt_archive (
     wallet_type        TEXT NOT NULL,
     network            TEXT NOT NULL,
 
-    psbt               TEXT NOT NULL,
-    signed_psbt        TEXT NOT NULL,
+    signed_psbt        JSONB NOT NULL DEFAULT '{}'::jsonb,
   
     -- Finalisierung
     raw_tx             TEXT NOT NULL,
@@ -133,7 +132,7 @@ CREATE TABLE IF NOT EXISTS btc.psbt_archive (
 
     sha256             TEXT,
 
-    meta               JSONB NOT NULL DEFAULT '{}'::jsonb,
+    meta               JSONB NOT NULL DEFAULT '{}'::jsonb
 );
 
 COMMIT;

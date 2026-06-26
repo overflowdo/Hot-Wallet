@@ -13,9 +13,13 @@
       "max_amount_sats": 5000000,
 
       "max_fee_rate_sat_vb": 100,
-      "min_fee_rate_sat_vb": 25,
+      "min_fee_rate_sat_vb": 20,
 
       "max_fee_sats": 20000
+    },
+    "balance":{
+      "min": 0.5,
+      "max": 2.0
     },
 
     "require_tag": false,

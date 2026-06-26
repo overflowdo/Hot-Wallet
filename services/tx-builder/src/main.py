@@ -139,7 +139,7 @@ async def build_psbt_for_intent(intent: PaymentIntent) -> PSBTModel:
             target_address = target_address,
             source_address = intent.source_address,
             state = "PSBT_FAILED",
-            meta = intent.meta | {"success=False"},
+            meta = intent.meta | {"success":False},
             error_code = "UNKNOWN_INTENT_TYPE"
         )
 
@@ -159,7 +159,7 @@ async def build_psbt_for_intent(intent: PaymentIntent) -> PSBTModel:
             target_address = target_address,
             source_address = intent.source_address,
             state = "PSBT_FAILED",
-            meta = intent.meta | {"success=False"},
+            meta = intent.meta | {"success": False},
             error_code = "INVALID_AMOUNT"
         )
 
@@ -186,7 +186,7 @@ async def build_psbt_for_intent(intent: PaymentIntent) -> PSBTModel:
             target_address = target_address,
             source_address = intent.source_address,
             state = "PSBT_FAILED",
-            meta = intent.meta | {"success=False"} | {"message": str(e)},
+            meta = intent.meta | {"success": False} | {"message": str(e)},
             error_code = "RPC_ERROR"
         )
     

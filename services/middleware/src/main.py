@@ -9,7 +9,7 @@ import logging
 from .opa import opa_evaluate, check_walletBalance, handle_refillDecision
 from .api.btc_core import broadcast_to_bitcoind, psbt_finalize
 from .signer import sign_psbt
-from .txBuilder import handle_psbt_created, handle_psbt_failed, whitelist_check,check_walletBalance
+from .txBuilder import handle_psbt_created, handle_psbt_failed, whitelist_check
 from .logging_setup import setup_logging
 from .models import create_psbt, create_psbt_msg, create_paymentIntent_msg
 from src.api import payments, wallets, health 
@@ -51,7 +51,7 @@ async def startup():
     #Init
     #Weiterleitung zu TX-builder
     async def intent_created_handler(msg):
-        intent = await create_paymentIntent_msg(msg.data.decode())
+        intent = await create_paymentIntent_msg(json.loads(msg.data.decode()))
 
         rail = intent.rail
         log.info(f"intent received: {intent.id} rail={rail}")
@@ -141,7 +141,7 @@ async def startup():
                         raise RuntimeError("Signer did not return a signed PSBT.")
                     
                     psbt.state = "SIGNED"
-                    psbt.psbt = signed
+                    psbt.psbt = psbt_signed
                     await asyncio.to_thread(
                         insert_psbt, psbt
                     )
@@ -150,9 +150,9 @@ async def startup():
                     if psbt.wallet_type == "hot":
                         #Finalisierung
                         try:
-                            rawtx_hex = await psbt_finalize(psbt_signed)
+                            rawtx_hex = psbt_finalize(psbt_signed)
+
                             psbt.state = "PSBT_FINALIZED"
-                            psbt.psbt = signed
                             await asyncio.to_thread(
                                 insert_psbt, psbt
                             )
@@ -164,7 +164,7 @@ async def startup():
 
                         #Broadcast
                         try:
-                            txid = await broadcast_to_bitcoind(rawtx_hex)
+                            txid = broadcast_to_bitcoind(rawtx_hex)
 
                             if not txid:
                                 raise RuntimeError("Bitcoind returned no transaction id.")
@@ -183,15 +183,15 @@ async def startup():
                         await asyncio.to_thread(
                             archive_psbt, {
                                 **psbt.model_dump(),
-                                "psbt_signed": signed,
                                 "final_tx": rawtx_hex,
                                 "txid": txid
                             }
                         )
                         log.info("Broadcast completed")
 
-                        decision = check_walletBalance(psbt.source_address)
-                        psbt_input = handle_refillDecision(decision)
+                        decision = await check_walletBalance(psbt.source_address)
+                        psbt_input = await handle_refillDecision(decision)
+                        
                         
                         if psbt_input is not None:
                             intent = await create_paymentIntent_msg(psbt_input)

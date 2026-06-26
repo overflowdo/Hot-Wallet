@@ -1,6 +1,6 @@
 package hot.limits
 
-import data.limits
+import rego.v1
 
 #Load data
 balance := input.balance
@@ -11,8 +11,8 @@ default risk_score := 0
 default reason := "within_limits"
 
 
-min := limits.hot.min
-max := limits.hot.max
+min := data.hot.balance.min
+max := data.hot.balance.max
 
 target := (min + max) / 2
 
@@ -25,22 +25,20 @@ deviation := balance - target
 # Abstand nach oben (Exposure Risk)
 range_half := (max - min) / 2
 
-risk_score := int(clamp(0, 100,
-    (abs(deviation) / range_half) * 100
-))
+risk_score := round((abs(deviation) / range_half) * 100)
 
 
 #################
 #check action
-action := "hot_to_cold" {
+action := "hot_to_cold" if {
     balance > max
 }
 
-action := "cold_to_hot" {
+action := "cold_to_hot" if {
     balance < min
 }
 
-action := "hold" {
+action := "hold" if {
     balance >= min
     balance <= max
 }
@@ -48,15 +46,15 @@ action := "hold" {
 
 ###############
 #create differnece
-amount := balance - target {
+amount := balance - target if {
     action == "hot_to_cold"
 }
 
-amount := target - balance {
+amount := target - balance if {
     action == "cold_to_hot"
 }
 
-amount := 0 {
+amount := 0 if {
     action == "hold"
 }
 
@@ -66,38 +64,38 @@ execution := {
     "estimate_mode": estimate_mode
 }
 
-confirmation_blocks := 1 {
+confirmation_blocks := 1 if {
     risk_score > 70
 }
 
-confirmation_blocks := 2 {
+confirmation_blocks := 2 if {
     risk_score > 30
     risk_score <= 70
 }
 
-confirmation_blocks := 6 {
+confirmation_blocks := 6 if {
     risk_score <= 30
 }
 
-estimate_mode := "conservative" {
+estimate_mode := "conservative" if {
     risk_score > 30
 }
 
-estimate_mode := "economical" {
+estimate_mode := "economical" if {
     risk_score <= 30
 }
 
 
 ###################
-reason := "above_max" {
+reason := "above_max" if {
     action == "hot_to_cold"
 }
 
-reason := "below_min" {
+reason := "below_min" if {
     action == "cold_to_hot"
 }
 
-reason := "within_limits" {
+reason := "within_limits" if {
     action == "hold"
 }
 

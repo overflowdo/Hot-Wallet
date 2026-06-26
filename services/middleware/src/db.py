@@ -2,8 +2,9 @@ import os
 import json
 import psycopg
 from psycopg.rows import dict_row
+import Json
 
-from .models import PSBTModel
+from .models import PSBTModel, isModel
 
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 
@@ -18,35 +19,7 @@ def rollback():
     with conn() as c:
         c.rollback()
 
-#UTXOs
-       
-
-#Für ZMQ-listener
-def insert_watchScript(script_pubkey_hex: str, wallet_id: str, index: int, input_type: str = "p2wpkh"):
-    with conn() as c:
-        with c.cursor() as cur:
-            cur.execute("""
-                INSERT INTO btc.watch_script (
-                    script_pubkey_hex,
-                    wallet_id,
-                    input_type,
-                    address_index,
-                    is_change
-                )
-                VALUES (%s, %s, %s, %s, %s)
-                ON CONFLICT (script_pubkey_hex)
-                DO NOTHING
-            """, (
-                script_pubkey_hex,
-                wallet_id,
-                input_type,
-                index,
-                False
-            ))
-        c.commit()
-
    
-    
 
 
 #wallet
@@ -79,7 +52,7 @@ def fetch_all(query: str, params: tuple = ()):
             cur.execute(query, params)
             return cur.fetchall()
         
-def get_walletName(type: str) -> list[str]:
+def get_walletName(type: str) -> str:
     with conn() as c:
         with c.cursor() as cur:
             cur.execute("""
@@ -88,18 +61,6 @@ def get_walletName(type: str) -> list[str]:
                 WHERE wallet_type = %s
                 AND active = TRUE
             """, (type,))
-            return [row["wallet_name"] for row in cur.fetchone()]
-        
-        
-def get_ext_walletNames() -> list[str]:
-    with conn() as c:
-        with c.cursor() as cur:
-            cur.execute("""
-                SELECT wallet_name
-                FROM btc.wallet
-                WHERE wallet_type = %s
-                AND active = TRUE
-            """, ("ext",))
             return [row["wallet_name"] for row in cur.fetchall()]
 
 #One time pro wallet
@@ -156,7 +117,6 @@ def archive_psbt(data: dict):
                     psbt_id,
                     wallet_type,
                     network,
-                    psbt,
                     signed_psbt,
                     raw_tx,
                     txid,
@@ -166,23 +126,22 @@ def archive_psbt(data: dict):
                     fee_sats,
                     fee_rate,
                     sha256,
-                    meta,
+                    meta
                 )
                 VALUES (
                     %s,%s,%s,%s,%s,%s,%s,%s,
-                    %s,%s,%s,%s,%s,%s
+                    %s,%s,%s,%s,%s
                 )
             """, (
-                data["psbt_id"],
-                data["wallet_type"],
+                data.get("psbt_id"),
+                data.get("wallet_type"),
                 data.get("network", "regtest"),
-                data["psbt"],
-                json.dumps(data.get("signed_psbt")),
-                data.get("raw_tx"),
+                data.get("psbt"),
+                data.get("final_tx"),
                 data.get("txid"),
-                data["source_address"],
-                data["target_address"],
-                data["amount_sats"],
+                data.get("source_address"),
+                data.get("target_address"),
+                data.get("amount_sats"),
                 data.get("fee_sats"),
                 data.get("fee_rate"),
                 data.get("sha256"),
@@ -238,18 +197,24 @@ def insert_opa_decision(
     psbt_id: str,
     policy_name: str,
     actor: str,
-    allow: bool,
+    action: bool,
     reasons: list,
-    input_data: dict,
+    input_data: str,
     result: dict
 ):
     with conn() as c:
         with c.cursor() as cur:
 
             # 1. resolve internal psbt DB id
-            db_psbt_id = get_psbt_db_id(psbt_id)
-            if db_psbt_id is None:
-                raise RuntimeError(f"psbt_id not found: {psbt_id}")
+            if psbt_id != "refill_check":
+                db_psbt_id = get_psbt_db_id(psbt_id)
+                if db_psbt_id is None:
+                    raise RuntimeError(f"psbt_id not found: {psbt_id}")
+            else: db_psbt_id = psbt_id
+
+            reasons = reasons(result)
+            input_data = normalize(input_data)
+            result = normalize(result)
 
             # 2. insert policy decision
             cur.execute("""
@@ -257,7 +222,7 @@ def insert_opa_decision(
                     psbt_id,
                     policy_name,
                     actor,
-                    allow,
+                    allowed,
                     reasons,
                     input,
                     result
@@ -267,13 +232,21 @@ def insert_opa_decision(
                 db_psbt_id,
                 policy_name,
                 actor,
-                allow,
-                reasons,
-                json.dumps(input_data.model_dump()),
-                json.dumps(result)
+                action,
+                json.dumps(reasons),
+                input_data,
+                Json(result)
             ))
 
         c.commit()
+
+def normalize(value):
+    if isModel(value):
+        return value.model_dump_json()
+    elif isinstance(value, (dict, list)):
+        return json.dumps(value)
+    else:
+        return str(value)
 
 #Hilfsfunktion psbt_id zu letzter id (unique) für referenzen auflösen
 def get_psbt_db_id(psbt_id: str) -> int | None:

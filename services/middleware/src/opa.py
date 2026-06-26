@@ -119,9 +119,9 @@ async def opa_evaluate(psbt: PSBTModel) -> bool:
 async def check_walletBalance(wallet_name: str):
     balance = get_walletBalance(wallet_name)
 
-    payload = {
+    payload = {"input": {
         "balance": balance
-    }
+    }}
 
     log.info(
         "sending wallet balance to OPA",
@@ -130,7 +130,7 @@ async def check_walletBalance(wallet_name: str):
 
     async with httpx.AsyncClient(timeout=3.0) as client:
         resp = await client.post(
-            f"{OPA_URL}/v1/data/policy/hot/limits",
+            f"{OPA_URL}/v1/data/policy/hot/limits/output",
             json=payload,
         )
         resp.raise_for_status()
@@ -147,15 +147,19 @@ async def check_walletBalance(wallet_name: str):
             "reason": raw.get("reason"),
 
             "confirmation_blocks": execution.get("confirmation_blocks", 1),
-            "broadcast_mode": execution.get("broadcast_mode" "immediate"),
-            "fee_mode": execution.get("fee_mode", "normal"),
+            "estimate_mode": execution.get("estimate_mode", "conservative")
         }
     
 async def handle_refillDecision(decision: dict):
     action = decision.get("action")
     amount = decision.get("amount", 0)
     execution = decision.get("execution", {})
-    reason = decision.get("reason")
+    reason = decision.get("reason", {})
+
+    if action == "hold":
+        action_allowed = False
+    else:
+        action_allowed = True
 
     log.info("OPA decision received", extra=decision)
     await asyncio.to_thread(
@@ -163,7 +167,7 @@ async def handle_refillDecision(decision: dict):
         psbt_id="refill_check",
         policy_name="policy.hot.limits",
         actor="middleware",
-        action=action,
+        action=action_allowed,
         reasons=reason,
         input_data=decision.get("balance"),
         result = decision
@@ -185,14 +189,14 @@ async def handle_refillDecision(decision: dict):
             break
 
     if action == "hot_to_cold":
-        source_address = get_walletName("hot")
-        target_address = get_walletName("cold-multi")
+        source_address = get_walletName("hot")[0]
+        target_address = get_walletName("cold")[0]
         type = "hot-tx"
         rail = "OPA"
 
     elif action == "cold_to_hot":
-        source_address = get_walletName("cold-multi")
-        target_address = get_walletName("hot")
+        source_address = get_walletName("cold")[0]
+        target_address = get_walletName("hot")[0]
         type = "refill"
         rail = "OPA"
     else:

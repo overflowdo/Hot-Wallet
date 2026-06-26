@@ -36,6 +36,7 @@ async def create_paymentIntent(
     rail: str,
     network: str,
     amount_sats: int | None = None,
+    source_address: str | None = None,
     target_address: str | None = None,
     meta: dict | None = None,
 ) -> PaymentIntent:
@@ -47,15 +48,14 @@ async def create_paymentIntent(
         rail=rail,
         network=network,
         amount_sats=amount_sats,
-        source_address="hot",
+        source_address=source_address or None,
         target_address=target_address,
         meta=meta
     )
 
 async def create_paymentIntent_msg(
-    msg,
+    data,
 ) -> PaymentIntent:
-    data = json.loads(msg)
 
     return await create_paymentIntent(
         id=data.get("id"),
@@ -172,4 +172,5 @@ async def create_psbt_msg(msg) -> PSBTModel:
         error_code=data.get("error_code"),
     )
 
-
+def isModel(data):
+    return isinstance(data, BaseModel)
