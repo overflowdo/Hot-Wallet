@@ -7,9 +7,13 @@ import json
 import httpx
 import logging
 import time
+from pathlib import Path
 
 from .db import insert_psbt
 from .models import PSBTModel
+
+REFILL_FILE = Path(os.getenv("REFILL_PSBT", "/run/refill.psbt"))
+REFILL_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 SIGNER_URL = os.getenv("SIGNER_URL")
 SIGNER_PORT = os.getenv("SIGNER_PORT")
@@ -61,15 +65,6 @@ async def sign_psbt(psbt: PSBTModel) -> PSBTModel:
         insert_psbt, psbt
     )
 
-    # store signed PSBT artifact
-    #await asyncio.to_thread(
-     #   inser_psbt_artifact,
-      #  psbt.get("id"),
-       # "signed",
-        #psbt.get("signed_psbt_ref"),
-        #psbt.get("sha256"),
-        #None
-    #)
     return signed
         
     
@@ -161,3 +156,17 @@ async def sign_psbt_on_signer(
     
     except httpx.HTTPError as e:
         raise RuntimeError(f"Signer request failed: {e}") from e
+    
+
+def save_psbt(psbt: str):
+    REFILL_FILE.write_text(psbt)
+
+def load_psbt():
+    if not REFILL_FILE.exists():
+        return None
+    return REFILL_FILE.read_text()
+
+
+def delete_psbt():
+    if REFILL_FILE.exists():
+        REFILL_FILE.unlink()

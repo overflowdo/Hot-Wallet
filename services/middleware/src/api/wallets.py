@@ -15,12 +15,6 @@ log = logging.getLogger(SERVICE_NAME)
 nc = None
 router = APIRouter()
 
-import json
-import asyncio
-from fastapi import APIRouter, Request, Body, HTTPException
-
-router = APIRouter()
-
 def normalize(desc_string: str) -> str:
     # Whitespaces entfernen
     desc = desc_string.strip()

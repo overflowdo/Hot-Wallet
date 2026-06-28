@@ -8,13 +8,12 @@ import logging
 
 from .opa import opa_evaluate, check_walletBalance, handle_refillDecision
 from .api.btc_core import broadcast_to_bitcoind, psbt_finalize
-from .signer import sign_psbt
+from .signer import sign_psbt, save_psbt
 from .txBuilder import handle_psbt_created, handle_psbt_failed, whitelist_check
 from .logging_setup import setup_logging
 from .models import create_psbt, create_psbt_msg, create_paymentIntent_msg
-from src.api import payments, wallets, health 
+from src.api import payments, wallets, health, psbt
 from .db import archive_psbt, psbt_created_seen, insert_psbt
-
 
 
 BITCOIN_NETWORK = os.getenv("BITCOIN_NETWORK", "regtest")
@@ -32,6 +31,7 @@ app = FastAPI()
 app.include_router(payments.router)
 app.include_router(wallets.router)
 app.include_router(health.router)
+app.include_router(psbt.router)
     
 
 ############################################################################
@@ -151,6 +151,7 @@ async def startup():
                     if psbt.wallet_type == "hot":
                         #Finalisierung
                         try:
+
                             rawtx_hex = psbt_finalize(psbt_signed)
 
                             psbt.state = "PSBT_FINALIZED"
@@ -207,9 +208,12 @@ async def startup():
                         await asyncio.to_thread(
                             insert_psbt, psbt
                         )
+
+                        await asyncio.to_thread(save_psbt, psbt.psbt)
+
                         log.info("Warten auf Operanten für cold-worflow")
                         #Ntfy informieren
-                        
+
             else:
                 #Ntfy about malicious request
                 return

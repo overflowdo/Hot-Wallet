@@ -46,6 +46,7 @@ services:
       BTC-CORE_RPC_PASS: pass
 
       SIGNER_HMAC_SECRET: /run/secrets/signer-hmac.secret
+      REFILL_PSBT:  /run/refill.psbt
     depends_on:
       - nats
       - opa
