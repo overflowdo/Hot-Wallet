@@ -63,6 +63,7 @@ async def create_paymentIntent_msg(
         rail=data["rail"],
         network=data.get("network", "regtest"),
         amount_sats=data.get("amount_sats"),
+        source_address=data.get("source_address", None),
         target_address=data.get("target_address"),
         meta=data.get("meta"),
     )
@@ -72,7 +73,8 @@ async def create_paymentIntent_msg(
 class PSBTModel(BaseModel):
 
     psbt_id: str
-    wallet_type: str
+    wallet_type: Literal["hot", "cold"]
+    rail: Literal["bip21", "psbt", "OPA"]
 
     #Core PSBT data
     psbt: str  # base64 PSBT
@@ -101,8 +103,8 @@ async def create_psbt(
     *,
     psbt_id: str | None = None,
     wallet_type: str,
+    rail: str,
     psbt: str,
-    rail: str | None = None,
     network: str,
     amount_sats: int | None = None,
     fee_sats: int | None = None,
@@ -138,6 +140,7 @@ async def create_psbt(
     return PSBTModel(
         psbt_id=psbt_id,
         wallet_type=wallet_type,
+        rail=rail,
         psbt=psbt,
         network=network,
         amount_sats=amount_sats,
@@ -158,6 +161,7 @@ async def create_psbt_msg(msg) -> PSBTModel:
     return await create_psbt(
         psbt_id=data.get("psbt_id"),
         wallet_type=data.get("wallet_type"),
+        rail=data.get("rail"),
         psbt=data.get("psbt"),
         network=data.get("network", "regtest"),
         amount_sats=data.get("amount_sats"),

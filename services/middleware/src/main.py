@@ -66,6 +66,7 @@ async def startup():
             psbt = await create_psbt(
                 psbt_id=intent.id,
                 wallet_type="hot",
+                rail=intent.rail,
                 psbt="",                                    #nach tx-builder
                 network=intent.network,
                 source_address="keyA",
@@ -118,7 +119,7 @@ async def startup():
         await handle_psbt_created(psbt)
 
         if await opa_evaluate(psbt):
-            if await whitelist_check(psbt.target_address):
+            if await whitelist_check(psbt.target_address, psbt.rail):
                 #refill und hot-tx müssen gesigned werden
                 #Weiterleitung zum Signer
                 signed = await sign_psbt(psbt)

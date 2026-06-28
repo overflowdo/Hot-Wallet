@@ -144,7 +144,7 @@ def extr_psbtInfo(psbt_b64: str, network: str = "regtest", wallet_name: str = "k
 
 
     target_address = None
-    amount_sats = 0
+    amount_btc = 0
 
     psbt_outs = decoded.get("outputs", [])
 
@@ -156,9 +156,12 @@ def extr_psbtInfo(psbt_b64: str, network: str = "regtest", wallet_name: str = "k
                 is_change = True
 
         if not is_change:
-            amount_sats += o["value_sats"]
+            amount_btc += o["value_sats"]
             if target_address is None:
                 target_address = o["address"]
+    
+    amount_btc = Decimal(amount_btc)
+    amount_sats = int(amount_btc * Decimal("100000000"))
 
     return {
         "amount_sats": amount_sats,

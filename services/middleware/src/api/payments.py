@@ -123,6 +123,7 @@ async def request_psbt(request: Request, payload: dict = Body(...)):
 
     psbt_model = await create_psbt(
         psbt_id=psbt_id,
+        rail="psbt",
         wallet_type="hot",
         psbt=psbt,
         meta={"rail": "psbt"},

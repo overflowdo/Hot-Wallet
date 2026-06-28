@@ -65,7 +65,7 @@ async def handle_intent_build(msg):
         log.error("nats_not_initialized")
         return
     
-    intent = await create_paymentIntent_msg(msg.data.decode())
+    intent = await create_paymentIntent_msg(json.loads(msg.data.decode()))
 
     try:
         if not intent.id:
@@ -128,10 +128,14 @@ async def build_psbt_for_intent(intent: PaymentIntent) -> PSBTModel:
         
     elif intent.type == "hot-tx":
         wallet_type = "hot"
+        if intent.rail == "OPA":
+            target_address = get_outputAddress(intent.target_address)
+
 
     else:
         return await create_psbt(
             psbt_id = intent.id,
+            rail=intent.rail,
             wallet_type = wallet_type,
             psbt =  "",
             network = intent.network,
@@ -153,6 +157,7 @@ async def build_psbt_for_intent(intent: PaymentIntent) -> PSBTModel:
         return await create_psbt(
             psbt_id = intent.id,
             wallet_type = wallet_type,
+            rail=intent.rail,
             psbt =  "",
             network = intent.network,
             amount_sats = intent.amount_sats,
@@ -174,12 +179,13 @@ async def build_psbt_for_intent(intent: PaymentIntent) -> PSBTModel:
     #früher manuell fee stabilisierung + block abgragung bei RPC
     #Dann direkte Methode gefunden
     try:
-        result = get_psbt(outputs, intent.source_address, estimate_mode, confirmation_blocks)
+        result = get_psbt(outputs, intent.source_address, confirmation_blocks, estimate_mode)
         
     except Exception as e:
         return await create_psbt(
             psbt_id = intent.id,
             wallet_type = wallet_type,
+            rail=intent.rail,
             psbt =  "",
             network = intent.network,
             amount_sats = intent.amount_sats,
@@ -215,6 +221,7 @@ async def build_psbt_for_intent(intent: PaymentIntent) -> PSBTModel:
     return await create_psbt(
         psbt_id = intent.id,
         wallet_type = wallet_type,
+        rail=intent.rail,
         psbt =  psbt_str,
         network = intent.network,
         amount_sats = intent.amount_sats,
