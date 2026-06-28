@@ -22,10 +22,15 @@ deviation := balance - target
 ############
 #risk score
 #normalisierte Abweichung vom optimalen Bereich
-# Abstand nach oben (Exposure Risk)
-range_half := (max - min) / 2
+range := max - min
 
-risk_score := round((abs(deviation) / range_half) * 100)
+risk_score := round(((min - balance) / range) * 100) if {
+    balance < min
+}
+
+risk_score := round(((balance - max) / range) * 100) if {
+    balance > max
+}
 
 
 #################

@@ -7,15 +7,13 @@ import base64
 from embit.psbt import PSBT
 from embit.networks import NETWORKS
 
-from .api.btc_core import extr_psbtInfo
-
 
 class PaymentIntent(BaseModel):
     id: str
 
     type: Literal["hot-tx", "refill"]
 
-    rail: Literal["bip21", "psbt", "OPA"]
+    rail: Literal["bip21", "psbt", "OPA_hot", "OPA_cold"]
 
     network: str
 
@@ -74,7 +72,7 @@ class PSBTModel(BaseModel):
 
     psbt_id: str
     wallet_type: Literal["hot", "cold"]
-    rail: Literal["bip21", "psbt", "OPA"]
+    rail: Literal["bip21", "psbt", "OPA_hot", "OPA_cold"]
 
     #Core PSBT data
     psbt: str  # base64 PSBT
@@ -117,14 +115,6 @@ async def create_psbt(
     meta: dict | None = None,
     error_code: dict | None = None,
 ) -> PSBTModel:
-    
-    if state != "INTENT_CREATED":
-        info = extr_psbtInfo(psbt, network)
-        amount_sats = amount_sats or info.get("amount_sats")
-        fee_sats = fee_sats or info.get("fee_sats")
-        fee_rate = fee_rate or info.get("fee_rate")
-        changepos = changepos or info.get("changepos")
-        target_address = target_address or info.get("target_address")
 
 
     if sha256 is None:

@@ -56,6 +56,7 @@ def parseOPA_PSBT(psbt: PSBTModel) -> dict:
     return {
         "psbt_id": psbt.psbt_id,
         "wallet_type": psbt.wallet_type,
+        "rail": psbt.rail,
         "psbt": psbt.psbt,
         "network": psbt.network,
         "target_address": psbt.target_address,
@@ -192,13 +193,13 @@ async def handle_refillDecision(decision: dict):
         source_address = get_walletName("hot")[0]
         target_address = get_walletName("cold")[0]
         type = "hot-tx"
-        rail = "OPA"
+        rail = "OPA_hot"
 
     elif action == "cold_to_hot":
         source_address = get_walletName("cold")[0]
         target_address = get_walletName("hot")[0]
         type = "refill"
-        rail = "OPA"
+        rail = "OPA_cold"
     else:
         raise ValueError(f"Unknown action: {action}")
     

@@ -18,7 +18,7 @@ limits := data.hot.limits
 
 #Rail OPA überprüfen
 skip_amount_fee_checks if {
-    object.get(input, "rail", "") == "OPA"
+    startswith(object.get(input, "rail", ""), "OPA")
 }
 
 #Input validation

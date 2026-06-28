@@ -58,7 +58,8 @@ async def handle_psbt_created(psbt: PSBTModel):
 
 async def whitelist_check(address: str, rail: str) -> bool:
     
-    if rail == "OPA": wallet_names = get_walletName("hot")
+    if rail == "OPA_hot": wallet_names = get_walletName("cold")
+    elif rail == "OPA_cold": wallet_names = get_walletName("hot")
     else: wallet_names = get_walletName("ext")
 
     for walletName in wallet_names:

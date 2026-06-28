@@ -15,7 +15,7 @@ class PaymentIntent(BaseModel):
 
     type: Literal["hot-tx", "refill"]
 
-    rail: Literal["bip21", "psbt", "OPA"]
+    rail: Literal["bip21", "psbt", "OPA_hot", "OPA_cold"]
 
     network: str
 
@@ -74,7 +74,7 @@ class PSBTModel(BaseModel):
 
     psbt_id: str
     wallet_type: Literal["hot", "cold"]
-    rail: Literal["bip21", "psbt", "OPA"]
+    rail: Literal["bip21", "psbt", "OPA_hot", "OPA_cold"]
 
     #Core PSBT data
     psbt: str  # base64 PSBT

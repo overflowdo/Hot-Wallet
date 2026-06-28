@@ -123,8 +123,8 @@ async def build_psbt_for_intent(intent: PaymentIntent) -> PSBTModel:
     if intent.type == "refill":
         wallet_type = "cold"
         target_address = get_outputAddress(intent.target_address)
-        confirmation_blocks = intent.get("meta").get("confirmation_blocks")
-        estimate_mode = intent.get("meta").get("estimate_mode")
+        confirmation_blocks = intent.meta.get("confirmation_blocks")
+        estimate_mode = intent.meta.get("estimate_mode")
         
     elif intent.type == "hot-tx":
         wallet_type = "hot"
