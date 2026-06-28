@@ -9,8 +9,8 @@ import logging
 import time
 from pathlib import Path
 
-from .db import insert_psbt
-from .models import PSBTModel
+from .db import insert_psbt,get_pending_PSBT, get_psbt_byID
+from .models import PSBTModel,create_psbt_msg
 
 REFILL_FILE = Path(os.getenv("REFILL_PSBT", "/run/refill.psbt"))
 REFILL_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -159,6 +159,10 @@ async def sign_psbt_on_signer(
     
 
 def save_psbt(psbt: str):
+    psbt_id = get_pending_PSBT().get("psbt_id")
+    if psbt_id is not None:
+        delete_psbt(psbt_id, status = True)
+
     REFILL_FILE.write_text(psbt)
 
 def load_psbt():
@@ -167,6 +171,19 @@ def load_psbt():
     return REFILL_FILE.read_text()
 
 
-def delete_psbt():
+#Löscht nicht, sondern schriebt COLD_STOPPED
+def delete_psbt(psbt_id = None):
+    if psbt_id is not None:
+        psbt_info = get_psbt_byID(psbt_id)
+        psbt_info['rail'] = "OPA_cold"
+        psbt_info['psbt'] = psbt
+        psbt = create_psbt_msg(psbt_info)
+
+        psbt.state = "COLD_STOPPED"
+        psbt.state = "COLD_STARTED"
+        asyncio.to_thread(
+            insert_psbt, psbt
+        )
+
     if REFILL_FILE.exists():
         REFILL_FILE.unlink()

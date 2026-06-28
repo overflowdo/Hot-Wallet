@@ -4,7 +4,7 @@ set -euo pipefail
 MNT="/mnt/usb"
 LABEL="USB"
 
-API_BASE="${API_BASE:-http://middleware:8080}"
+API_BASE="${API_BASE:-http://localhost:8080}"
 
 die(){ echo "ERROR: $*" >&2; exit 1; }
 info(){ echo "[*] $*"; }

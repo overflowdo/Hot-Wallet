@@ -179,49 +179,22 @@ def insert_psbt(psbt: PSBTModel):
         c.commit()
 
 
-def psbt_checkBroadcast(psbt_id: str) -> bool:
-    with conn() as c:
-        with c.cursor() as cur:
-            cur.execute("""
-                SELECT psbt_state
-                FROM btc.psbt
-                WHERE psbt_id = %s
-            """, (psbt_id,))
-
-            rows = cur.fetchall()
-
-    if not rows:
-        return False
-
-    states = {r[0] for r in rows}
-
-    return (
-        "COLD_STARTED" in states
-        and "BROADCASTED" not in states
-    )
-
-
 def get_pending_PSBT():
     with conn() as c:
         with c.cursor() as cur:
             cur.execute("""
-                SELECT
+                SELECT DISTINCT ON (psbt_id)
                     psbt_id,
-                    psbt_type,
+                    wallet_type,
                     psbt_state,
                     network,
                     amount_sats,
                     source_address,
                     target_address,
                     meta,
-                    error_code
                 FROM btc.psbt
-                GROUP BY psbt_id
-                HAVING
-                    BOOL_OR(psbt_state = 'WAITING_ON_HUMAN')
-                    AND NOT BOOL_OR(psbt_state = 'COLD_STARTED')
-                    AND NOT BOOL_OR(psbt_state = 'BROADCASTED')
-                LIMIT 1
+                WHERE psbt_state = 'WAITING_HUMAN'
+                ORDER BY id DESC;
             """)
 
             row = cur.fetchone()
@@ -231,14 +204,13 @@ def get_pending_PSBT():
 
     return {
         "psbt_id": row[0],
-        "psbt_type": row[1],
+        "wallet_type": row[1],
         "psbt_state": row[2],
         "network": row[3],
         "amount_sats": row[4],
         "source_address": row[5],
         "target_address": row[6],
-        "meta": row[7],
-        "error_code": row[8],
+        "meta": row[7]
     }
 
 
@@ -246,20 +218,18 @@ def get_psbt_byID(psbt_id: str):
     with conn() as c:
         with c.cursor() as cur:
             cur.execute("""
-                SELECT
+                SELECT DISTINCT on (psbt_id)
                     psbt_id,
-                    psbt_type,
+                    wallet_type,
                     psbt_state,
                     network,
                     amount_sats,
                     source_address,
                     target_address,
-                    meta,
-                    error_code
+                    meta
                 FROM btc.psbt
                 WHERE psbt_id = %s
                 ORDER BY id DESC
-                LIMIT 1
             """, (psbt_id,))
 
             row = cur.fetchone()
@@ -269,14 +239,13 @@ def get_psbt_byID(psbt_id: str):
 
     return {
         "psbt_id": row[0],
-        "psbt_type": row[1],
+        "wallet_type": row[1],
         "psbt_state": row[2],
         "network": row[3],
         "amount_sats": row[4],
         "source_address": row[5],
         "target_address": row[6],
-        "meta": row[7],
-        "error_code": row[8],
+        "meta": row[7]
     }
 
 

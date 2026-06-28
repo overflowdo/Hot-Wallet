@@ -12,7 +12,7 @@ BEGIN
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'psbt_state') THEN
-    CREATE TYPE btc.psbt_state AS ENUM ('INTENT_CREATED', 'PSBT_CREATED', 'PSBT_FAILED', 'OPA_APPROVED', 'OPA_REJECTED', 'WAITING_HUMAN', 'COLD_STARTED' 'WAITING_RETRY', 'SIGNING_FAILED', 'SIGNED', 'PSBT_FINALIZED', 'BROADCASTED');
+    CREATE TYPE btc.psbt_state AS ENUM ('INTENT_CREATED', 'PSBT_CREATED', 'PSBT_FAILED', 'OPA_APPROVED', 'OPA_REJECTED', 'WAITING_HUMAN', 'COLD_STARTED', 'COLD_STOPPED', 'WAITING_RETRY', 'SIGNING_FAILED', 'SIGNED', 'PSBT_FINALIZED', 'BROADCASTED');
   END IF;
   
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'wallet_type') THEN
@@ -81,27 +81,6 @@ CREATE TABLE IF NOT EXISTS btc.opa_decision (
 
 -- gen_random_uuid() needs pgcrypto
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
-
--- -----------------------------
--- HOT SIGNING REQUESTS (zu NixOs bei HTTP)
--- -----------------------------
-CREATE TABLE IF NOT EXISTS btc.hot_sign_request (
-  request_id           TEXT PRIMARY KEY,       -- idempotency key (from middleware)
-  psbt_id            TEXT,
-
-  network              TEXT NOT NULL DEFAULT 'regtest',
-  state                btc.psbt_state NOT NULL DEFAULT 'WAITING_RETRY',
-  created_utc          TIMESTAMPTZ NOT NULL DEFAULT now(),
-
-  tx_hash              TEXT NOT NULL,           -- canonical binding hash
-  unsigned_rawtx_sha256 TEXT,                   -- hash of rawtx template
-  signed_rawtx_sha256   TEXT,                   -- hash after signing
-
-  txid                 TEXT,                   -- after broadcast
-  error                TEXT
-);
-
-CREATE INDEX IF NOT EXISTS idx_hotreq_txid ON btc.hot_sign_request (txid);
 
 -- -----------------------------
 -- ARCHIVE INDEX (keine verbindeungen zu anderen Tabellen

@@ -204,14 +204,13 @@ async def startup():
                             
 
                     elif psbt.wallet_type == "cold":
+                        await asyncio.to_thread(save_psbt, psbt.psbt)
+
                         psbt.state = "WAITING_HUMAN"
                         await asyncio.to_thread(
                             insert_psbt, psbt
                         )
-
-                        await asyncio.to_thread(save_psbt, psbt.psbt)
-
-                        log.info("Warten auf Operanten für cold-worflow")
+                        log.info("Warten auf Operanten feur cold-worflow")
                         #Ntfy informieren
 
             else:
